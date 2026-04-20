@@ -1,8 +1,8 @@
-# Smart Paste - Умная вставка сжатых логов
+# Logs Tokenizer - Умная вставка сжатых логов
 
 ## Описание
 
-Smart Paste - утилита для автоматического сжатия логов при вставке. Вместо вставки сырых логов с тысячами повторяющихся строк, вы получаете компактную версию с сохранением всей важной информации.
+Logs Tokenizer - утилита для автоматического сжатия логов при вставке. Вместо вставки сырых логов с тысячами повторяющихся строк, вы получаете компактную версию с сохранением всей важной информации.
 
 ## Как использовать
 
@@ -10,12 +10,12 @@ Smart Paste - утилита для автоматического сжатия 
 
 **Вариант 1: Через BAT файл (рекомендуется)**
 ```cmd
-start-smart-paste.bat
+start-logs-tokenizer.bat
 ```
 
 **Вариант 2: Через PowerShell**
 ```powershell
-powershell -ExecutionPolicy Bypass -File src\smart-paste-logs.ps1
+powershell -ExecutionPolicy Bypass -File src\logs-tokenizer.ps1
 ```
 
 ### Использование
@@ -65,16 +65,16 @@ powershell -ExecutionPolicy Bypass -File src\smart-paste-logs.ps1
 
 1. Открыть Task Scheduler (Win+R → `taskschd.msc`)
 2. Create Basic Task
-3. Name: "Smart Paste AutoStart"
+3. Name: "Logs Tokenizer AutoStart"
 4. Trigger: "At log on"
 5. Action: "Start a program"
 6. Program: `powershell.exe`
-7. Arguments: `-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\dev\LogsTokenizer\src\smart-paste-logs.ps1"`
+7. Arguments: `-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\dev\LogsTokenizer\src\logs-tokenizer.ps1"`
 8. Finish
 
 ### Через Startup папку
 
-Создать ярлык на `start-smart-paste.bat` в:
+Создать ярлык на `start-logs-tokenizer.bat` в:
 ```
 %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 ```
@@ -115,13 +115,14 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 LogsTokenizer/
 ├── src/                          # Основные скрипты
-│   ├── smart-paste-logs.ps1     # Главный скрипт утилиты
-│   └── start-smart-paste.bat    # Launcher для Windows
+│   ├── logs-tokenizer.ps1       # Главный скрипт утилиты
+│   └── start-logs-tokenizer.bat # Launcher для Windows
 ├── docs/                         # Документация
 ├── tests/                        # Тестовые скрипты (не в git)
 ├── examples/                     # Примеры логов (не в git)
 ├── .gitignore
-└── README.md
+├── README.md
+└── start-logs-tokenizer.bat     # Launcher из корня
 ```
 
 ## Лицензия

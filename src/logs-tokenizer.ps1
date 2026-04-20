@@ -1,5 +1,5 @@
-# Smart Paste - Intelligent log compression for clipboard
-# Author: KeyRay Development Team
+# Logs Tokenizer - Intelligent log compression for clipboard
+# Author: Sergei Vaskov
 # Version: 2.0
 # Usage: Run script, copy logs (Ctrl+C), paste with Ctrl+Alt+V
 
@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$logFile = Join-Path $env:TEMP "smart-paste-log.txt"
+$logFile = Join-Path $env:TEMP "logs-tokenizer-log.txt"
 
 function Write-Log {
     param($Message)
@@ -20,7 +20,7 @@ function Write-Log {
 }
 
 try {
-    Write-Log "=== Smart Paste starting ==="
+    Write-Log "=== Logs Tokenizer starting ==="
     
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -418,7 +418,7 @@ public class FastCompressor {
             if ([string]::IsNullOrWhiteSpace($originalText)) {
                 Write-Log "Clipboard is empty"
                 $script:notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Warning
-                $script:notifyIcon.BalloonTipTitle = "Smart Paste"
+                $script:notifyIcon.BalloonTipTitle = "Logs Tokenizer"
                 $script:notifyIcon.BalloonTipText = "Clipboard is empty"
                 $script:notifyIcon.ShowBalloonTip(1000)
                 return
@@ -455,7 +455,7 @@ public class FastCompressor {
             Write-Log "Restored original clipboard content"
             
             $script:notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
-            $script:notifyIcon.BalloonTipTitle = "Smart Paste"
+            $script:notifyIcon.BalloonTipTitle = "Logs Tokenizer"
             $script:notifyIcon.BalloonTipText = "Pasted $compressedSize chars (saved $savedPercent%)"
             $script:notifyIcon.ShowBalloonTip(2000)
             
@@ -464,7 +464,7 @@ public class FastCompressor {
         catch {
             Write-Log "Error: $_"
             $script:notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Error
-            $script:notifyIcon.BalloonTipTitle = "Smart Paste"
+            $script:notifyIcon.BalloonTipTitle = "Logs Tokenizer"
             $script:notifyIcon.BalloonTipText = "Error: $_"
             $script:notifyIcon.ShowBalloonTip(2000)
         }
@@ -477,7 +477,7 @@ public class FastCompressor {
     $script:notifyIcon = New-Object System.Windows.Forms.NotifyIcon
     $script:notifyIcon.Icon = [System.Drawing.SystemIcons]::Application
     $script:notifyIcon.Visible = $true
-    $script:notifyIcon.Text = "Smart Paste (Ctrl+Alt+V)"
+    $script:notifyIcon.Text = "Logs Tokenizer (Ctrl+Alt+V)"
     Write-Log "Created tray icon"
 
     # Context menu
@@ -531,7 +531,7 @@ public class FastCompressor {
         $script:notifyIcon.Dispose()
     })
 
-    Write-Host "Smart Paste started!" -ForegroundColor Green
+    Write-Host "Logs Tokenizer started!" -ForegroundColor Green
     Write-Host "Hotkey: Ctrl+Alt+V" -ForegroundColor Cyan
     Write-Host "Copy logs (Ctrl+C), paste with Ctrl+Alt+V" -ForegroundColor Yellow
     Write-Host "To exit: close window or right-click tray icon" -ForegroundColor Magenta
@@ -539,7 +539,7 @@ public class FastCompressor {
 
     # Show notification
     $script:notifyIcon.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::Info
-    $script:notifyIcon.BalloonTipTitle = "Smart Paste activated"
+    $script:notifyIcon.BalloonTipTitle = "Logs Tokenizer activated"
     $script:notifyIcon.BalloonTipText = "Use Ctrl+Alt+V for smart paste"
     $script:notifyIcon.ShowBalloonTip(2000)
     Write-Log "Showed welcome notification"
@@ -554,7 +554,7 @@ catch {
     $errorMsg = "Critical error: $_ | $($_.ScriptStackTrace)"
     Write-Log $errorMsg
     [System.Windows.Forms.MessageBox]::Show(
-        "Error starting Smart Paste:`n`n$_`n`nDetails in: $logFile",
+        "Error starting Logs Tokenizer:`n`n$_`n`nDetails in: $logFile",
         "Error",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Error
