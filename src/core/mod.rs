@@ -4,27 +4,226 @@ use once_cell::sync::Lazy;
 
 const BASE62: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-// Pre-compile all static regexes to avoid compiling them in loops or multiple times
-static META_TOKENIZER: Lazy<Regex> = Lazy::new(|| Regex::new(r"#[a-zA-Z0-9]+#|![0-9]+!|[A-Za-z0-9_]+|[^A-Za-z0-9_#!]+").unwrap());
-static NORMAL_TOKENIZER: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z0-9_]+|[^A-Za-z0-9_]+").unwrap());
-static NORMAL_SPLIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#)").unwrap());
-static RE_TAGS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)").unwrap());
+// Pre-compile static regexes for one-off passes
+static RE_TAGS: Lazy<Regex>          = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)").unwrap());
 
-static RE_ZEROS_1: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
-static RE_ZEROS_2: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}(0\b)").unwrap());
-static RE_ZEROS_3: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
-static RE_ZEROS_4: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}(0\b)").unwrap());
+static RE_ZEROS_1: Lazy<Regex>       = Lazy::new(|| Regex::new(r"\b0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
+static RE_ZEROS_2: Lazy<Regex>       = Lazy::new(|| Regex::new(r"\b0{3,}(0\b)").unwrap());
+static RE_ZEROS_3: Lazy<Regex>       = Lazy::new(|| Regex::new(r"(\b0x)0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
+static RE_ZEROS_4: Lazy<Regex>       = Lazy::new(|| Regex::new(r"(\b0x)0{3,}(0\b)").unwrap());
 
-static RE_TS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:").unwrap());
-static RE_COMP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[[A-Za-z0-9_-]+\]").unwrap());
-static RE_KEYS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[A-Za-z0-9_]+={1,2}").unwrap());
-static RE_NO_TIME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#T#\d{2}\.\d{3}\s*").unwrap());
+static RE_TS: Lazy<Regex>            = Lazy::new(|| Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:").unwrap());
+static RE_COMP: Lazy<Regex>          = Lazy::new(|| Regex::new(r"\[[A-Za-z0-9_-]+\]").unwrap());
+static RE_KEYS: Lazy<Regex>          = Lazy::new(|| Regex::new(r"\b[A-Za-z0-9_]+={1,2}").unwrap());
+static RE_NO_TIME: Lazy<Regex>       = Lazy::new(|| Regex::new(r"^#T#\d{2}\.\d{3}\s*").unwrap());
 
 pub struct Compressor {
     var_idx: usize,
     meta_idx: usize,
     macro_idx: usize,
     legend: Vec<String>,
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn fast_replace_word_bounded(text: &str, phrase: &str, token: &str) -> String {
+    if phrase.is_empty() {
+        return text.to_string();
+    }
+    
+    let mut result = String::with_capacity(text.len());
+    let mut last_end = 0;
+    
+    let phrase_starts_word = phrase.chars().next().map_or(false, is_word_char);
+    let phrase_ends_word = phrase.chars().last().map_or(false, is_word_char);
+
+    let mut start_idx = 0;
+    while let Some(idx) = text[start_idx..].find(phrase) {
+        let absolute_idx = start_idx + idx;
+        let end_idx = absolute_idx + phrase.len();
+        
+        let mut valid = true;
+        if phrase_starts_word {
+            if let Some(prev_char) = text[..absolute_idx].chars().next_back() {
+                if is_word_char(prev_char) { valid = false; }
+            }
+        }
+        if valid && phrase_ends_word {
+            if let Some(next_char) = text[end_idx..].chars().next() {
+                if is_word_char(next_char) { valid = false; }
+            }
+        }
+        
+        if valid {
+            result.push_str(&text[last_end..absolute_idx]);
+            result.push_str(token);
+            last_end = end_idx;
+            start_idx = end_idx;
+        } else {
+            start_idx = absolute_idx + phrase.chars().next().unwrap().len_utf8();
+        }
+    }
+    result.push_str(&text[last_end..]);
+    result
+}
+
+trait BpeStrategy {
+    fn tokenize<'a>(&self, text: &'a str) -> Vec<&'a str>;
+    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str>;
+    fn max_n(&self) -> usize;
+    fn min_trim_len(&self) -> usize;
+    fn requires_hash(&self) -> bool;
+    fn tag_len(&self, compressor: &Compressor) -> usize;
+    fn next_token(&self, compressor: &mut Compressor) -> String;
+    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String;
+}
+
+struct NormalBpe;
+impl BpeStrategy for NormalBpe {
+    fn tokenize<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        let mut tokens = Vec::new();
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let is_alnum = bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_';
+            let mut j = i + 1;
+            while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') == is_alnum {
+                j += 1;
+            }
+            tokens.push(&text[i..j]);
+            i = j;
+        }
+        tokens
+    }
+
+    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        let mut parts = Vec::new();
+        let mut last_end = 0;
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'#' {
+                let mut j = i + 1;
+                if j < bytes.len() && bytes[j] == b'T' {
+                    j += 1;
+                } else {
+                    while j < bytes.len() && bytes[j].is_ascii_alphanumeric() { j += 1; }
+                }
+                if j < bytes.len() && bytes[j] == b'#' && j > i + 1 {
+                    parts.push(&text[last_end..i]);
+                    last_end = j + 1;
+                    i = j + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        parts.push(&text[last_end..]);
+        parts
+    }
+
+    fn max_n(&self) -> usize { 20 }
+    fn min_trim_len(&self) -> usize { 4 }
+    fn requires_hash(&self) -> bool { false }
+    fn tag_len(&self, compressor: &Compressor) -> usize {
+        let mut n = compressor.var_idx;
+        let mut len = 0;
+        if n == 0 { len = 1; }
+        while n > 0 { len += 1; n /= 62; }
+        len + 2
+    }
+    fn next_token(&self, compressor: &mut Compressor) -> String {
+        compressor.get_next_token()
+    }
+    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String {
+        let mut new_text = String::with_capacity(text.len());
+        let mut last_end = 0;
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'#' {
+                let mut j = i + 1;
+                if j < bytes.len() && bytes[j] == b'T' {
+                    j += 1;
+                } else {
+                    while j < bytes.len() && bytes[j].is_ascii_alphanumeric() { j += 1; }
+                }
+                if j < bytes.len() && bytes[j] == b'#' && j > i + 1 {
+                    let part = &text[last_end..i];
+                    new_text.push_str(&fast_replace_word_bounded(part, phrase, token));
+                    new_text.push_str(&text[i..=j]);
+                    last_end = j + 1;
+                    i = j + 1;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        new_text.push_str(&fast_replace_word_bounded(&text[last_end..], phrase, token));
+        new_text
+    }
+}
+
+struct MetaBpe;
+impl BpeStrategy for MetaBpe {
+    fn tokenize<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        let mut tokens = Vec::new();
+        let bytes = text.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'#' {
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j].is_ascii_alphanumeric() { j += 1; }
+                if j < bytes.len() && bytes[j] == b'#' {
+                    tokens.push(&text[i..=j]);
+                    i = j + 1;
+                    continue;
+                }
+            } else if bytes[i] == b'!' {
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j].is_ascii_digit() { j += 1; }
+                if j < bytes.len() && bytes[j] == b'!' {
+                    tokens.push(&text[i..=j]);
+                    i = j + 1;
+                    continue;
+                }
+            }
+            
+            let is_alnum = bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_';
+            if is_alnum {
+                let mut j = i + 1;
+                while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') { j += 1; }
+                tokens.push(&text[i..j]);
+                i = j;
+            } else {
+                let mut j = i + 1;
+                while j < bytes.len() && !(bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_' || bytes[j] == b'#' || bytes[j] == b'!') { j += 1; }
+                tokens.push(&text[i..j]);
+                i = j;
+            }
+        }
+        tokens
+    }
+
+    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        text.split('\n').collect()
+    }
+    fn max_n(&self) -> usize { 15 }
+    fn min_trim_len(&self) -> usize { 5 }
+    fn requires_hash(&self) -> bool { true }
+    fn tag_len(&self, compressor: &Compressor) -> usize {
+        compressor.meta_idx.to_string().len() + 2
+    }
+    fn next_token(&self, compressor: &mut Compressor) -> String {
+        let t = format!("!{}!", compressor.meta_idx);
+        compressor.meta_idx += 1;
+        t
+    }
+    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String {
+        fast_replace_word_bounded(text, phrase, token)
+    }
 }
 
 impl Default for Compressor {
@@ -63,29 +262,16 @@ impl Compressor {
         format!("#{}#", unsafe { String::from_utf8_unchecked(res) })
     }
 
-    fn run_bpe(&mut self, mut text: String, max_iterations: usize, is_meta: bool) -> String {
-        let tokenizer = if is_meta { &*META_TOKENIZER } else { &*NORMAL_TOKENIZER };
-
+    fn run_bpe<S: BpeStrategy>(&mut self, mut text: String, max_iterations: usize, strategy: S) -> String {
         for _ in 0..max_iterations {
             let mut substring_counts: HashMap<&[&str], usize> = HashMap::new();
             
-            let parts: Vec<&str> = if is_meta {
-                text.split('\n').collect()
-            } else {
-                let mut parts_owned = Vec::new();
-                let mut last_end = 0;
-                for mat in NORMAL_SPLIT.find_iter(&text) {
-                    parts_owned.push(&text[last_end..mat.start()]);
-                    last_end = mat.end();
-                }
-                parts_owned.push(&text[last_end..]);
-                parts_owned
-            };
+            let parts = strategy.split_text(&text);
 
             let mut all_tokens: Vec<Vec<&str>> = Vec::with_capacity(parts.len());
             for part in parts {
                 if part.trim().is_empty() { continue; }
-                let tokens: Vec<&str> = tokenizer.find_iter(part).map(|m| m.as_str()).collect();
+                let tokens = strategy.tokenize(part);
                 if tokens.len() >= 2 {
                     all_tokens.push(tokens);
                 }
@@ -93,7 +279,7 @@ impl Compressor {
 
             for tokens in &all_tokens {
                 let len = tokens.len();
-                let max_n = std::cmp::min(if is_meta { 15 } else { 20 }, len);
+                let max_n = std::cmp::min(strategy.max_n(), len);
                 
                 for n in 2..=max_n {
                     for i in 0..=(len - n) {
@@ -108,7 +294,7 @@ impl Compressor {
                                 has_newline = true;
                                 break;
                             }
-                            if is_meta && s.contains('#') {
+                            if strategy.requires_hash() && s.contains('#') {
                                 has_hash = true;
                             }
                             total_len += s.len();
@@ -122,8 +308,8 @@ impl Compressor {
                         joined_trim_len -= first.len() - first.trim_start().len();
                         joined_trim_len -= last.len() - last.trim_end().len();
                         
-                        if joined_trim_len < if is_meta { 5 } else { 4 } { continue; }
-                        if is_meta && !has_hash { continue; }
+                        if joined_trim_len < strategy.min_trim_len() { continue; }
+                        if strategy.requires_hash() && !has_hash { continue; }
                         
                         *substring_counts.entry(slice).or_insert(0) += 1;
                     }
@@ -135,16 +321,7 @@ impl Compressor {
 
             for (slice, count) in &substring_counts {
                 if *count > 1 {
-                    let tag_len = if is_meta {
-                        self.meta_idx.to_string().len() + 2
-                    } else {
-                        let mut n = self.var_idx;
-                        let mut len = 0;
-                        if n == 0 { len = 1; }
-                        while n > 0 { len += 1; n /= 62; }
-                        len + 2
-                    };
-                    
+                    let tag_len = strategy.tag_len(self);
                     let phrase_len: usize = slice.iter().map(|s| s.len()).sum();
                     
                     let savings = (*count as i32) * (phrase_len as i32 - tag_len as i32) - (tag_len as i32 + 3 + phrase_len as i32);
@@ -158,46 +335,15 @@ impl Compressor {
             if best_savings < 5 { break; }
 
             let best_phrase = best_phrase_slice.join("");
-            let token = if is_meta {
-                let t = format!("!{}!", self.meta_idx);
-                self.meta_idx += 1;
-                t
-            } else {
-                self.get_next_token()
-            };
+            let token = strategy.next_token(self);
 
-            let mut escaped_final = regex::escape(&best_phrase);
-            if best_phrase.chars().next().unwrap().is_ascii_alphanumeric() || best_phrase.starts_with('_') {
-                escaped_final = format!(r"\b{}", escaped_final);
-            }
-            if best_phrase.chars().last().unwrap().is_ascii_alphanumeric() || best_phrase.ends_with('_') {
-                escaped_final = format!(r"{}\b", escaped_final);
-            }
+            text = strategy.replace_text(&text, &best_phrase, &token);
 
-            if let Ok(re) = Regex::new(&escaped_final) {
-                if is_meta {
-                    text = re.replace_all(&text, &token).into_owned();
-                } else {
-                    let mut new_text = String::with_capacity(text.len());
-                    let mut last_end = 0;
-                    for mat in NORMAL_SPLIT.find_iter(&text) {
-                        let part = &text[last_end..mat.start()];
-                        new_text.push_str(&re.replace_all(part, &token));
-                        new_text.push_str(mat.as_str());
-                        last_end = mat.end();
-                    }
-                    new_text.push_str(&re.replace_all(&text[last_end..], &token));
-                    text = new_text;
-                }
-
-                let mut display_phrase = best_phrase;
-                if display_phrase.starts_with(' ') || display_phrase.ends_with(' ') {
-                    display_phrase = format!("'{}'", display_phrase);
-                }
-                self.legend.push(format!("{} = {}", token, display_phrase));
-            } else {
-                break;
+            let mut display_phrase = best_phrase;
+            if display_phrase.starts_with(' ') || display_phrase.ends_with(' ') {
+                display_phrase = format!("'{}'", display_phrase);
             }
+            self.legend.push(format!("{} = {}", token, display_phrase));
         }
         text
     }
@@ -367,10 +513,10 @@ impl Compressor {
         }
 
         // 4. BPE
-        text = self.run_bpe(text, 100, false);
+        text = self.run_bpe(text, 100, NormalBpe);
         
         // 4.5 Meta-BPE
-        text = self.run_bpe(text, 100, true);
+        text = self.run_bpe(text, 100, MetaBpe);
         
         // 5. MACRO TEMPLATING
         text = self.run_macro_templating(text);
