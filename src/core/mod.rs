@@ -393,13 +393,13 @@ impl Compressor {
             }
             
             if dup_count > 0 {
-                final_lines.push(format!("    ... (repeated {} more times)", dup_count));
+                final_lines.push(format!("    ... x{}", dup_count + 1));
                 dup_count = 0;
             }
             final_lines.push(line.to_string());
             last_line = line_no_time;
         }
-        if dup_count > 0 { final_lines.push(format!("    ... (repeated {} more times)", dup_count)); }
+        if dup_count > 0 { final_lines.push(format!("    ... x{}", dup_count + 1)); }
         final_lines
     }
 

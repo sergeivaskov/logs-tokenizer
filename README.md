@@ -1,130 +1,86 @@
-# Logs Tokenizer - Умная вставка сжатых логов
+# Logs Tokenizer 🗜️
 
-## Описание
+**Logs Tokenizer** — это умная фоновая утилита для вайбкодеров, разработчиков и DevOps-инженеров, которая экстремально сжимает логи прямо в буфере обмена, оставляя их в читаемом текстовом формате.
 
-Logs Tokenizer - утилита для автоматического сжатия логов при вставке. Вместо вставки сырых логов с тысячами повторяющихся строк, вы получаете компактную версию с сохранением всей важной информации.
+## ⚠️ Проблема
 
-## Как использовать
+Вам нужно сэкономить токены при взаимодействии с нейросетями, в особенности с Claude Code, но вы не хотите жертвовать объемом. Логи содержат большое количество дюблирующейся информации, которая может быть вынесена за скобки.
 
-### Запуск
+## 💡 Решение
 
-**Вариант 1: Через BAT файл (рекомендуется)**
-```cmd
-start-logs-tokenizer.bat
+Вы просто копируете логи, нажимаете `Ctrl + Alt + V`, и утилита мгновенно сжимает текст в буфере обмена, заменяя повторяющиеся паттерны на короткие токены и автоматически вставляет результат. Текст остается текстом, но занимает на до 80% меньше места!
+
+---
+
+## 🔍 Условный пример
+
+### Вид строк логов до сжатия (Огинал)
+
+```text
+2026-04-20T19:58:52.970 [StageDiag] > handleTokenTracking vk=70 keyDown=0
+2026-04-20T19:58:52.970 [TTTrack] htt: enter vk=70 keyDown=0
+2026-04-20T19:58:52.970 [TTTrack] htt: after modifier check
+2026-04-20T19:58:52.970 [TTTrack] htt: KeyUp branch, checking cachedSettings
+2026-04-20T19:58:52.970 [TTTrack] htt: KeyUp autoReplEnabled=1 isProcessing=0
+2026-04-20T19:58:52.970 [TTTrack] htt: KeyUp postRepl=0
+2026-04-20T19:58:52.971 [TTTrack] htt: KeyUp hasPlannedTargetLayout=0
+2026-04-20T19:58:52.971 [TTTrack] htt: KeyUp branch returning false
+2026-04-20T19:58:53.017 [HookDiag] LowLevelKeyboardProc: vk=32 keyDown=1 injected=0 extraInfo=0 ctrlLogical=0 ctrlPhysical=0 heldMask=0x0 shouldTrack=1 skipInjected=0
+2026-04-20T19:58:53.018 [StageDiag] > entry vk=32 keyDown=1
+2026-04-20T19:58:53.018 [StageDiag] > drainPendingReset vk=32 keyDown=1
+2026-04-20T19:58:53.018 [StageDiag] > shouldBlockAllFeatures vk=32 keyDown=1
+2026-04-20T19:58:53.018 [StageDiag] > executePendingReplacementIfAny vk=32 keyDown=1
+2026-04-20T19:58:53.019 [StageDiag] > hotkeyManager.processKeyEvent vk=32 keyDown=1
 ```
 
-**Вариант 2: Через PowerShell**
-```powershell
-powershell -ExecutionPolicy Bypass -File src\logs-tokenizer.ps1
+### Строки логов после сжатия (Logs Tokenizer)
+
+```text
+!16!!t!83!2!
+&1f:!A!
+&1f:!F!
+&1f:!D!
+&1f:!B!
+&1f:!w!
+&1f:!y!
+&1u:!z!
+&1u:!E!
+&1u:!C!
+&1V:!G!
+&1V:!P!
+&1V:!Q!
+&1V:!J!
+!4!209 !v!
 ```
 
-### Использование
+*В начале сжатого варианта дополнительно добавляется компактная Легенда (словарь), а сам текст логов радикально сокращается.*
 
-1. **Копируйте логи обычным способом** (Ctrl+C или правый клик → Copy)
-2. **Переключитесь в Cursor** или любое другое приложение
-3. **Нажмите Ctrl+Alt+V** вместо обычного Ctrl+V
-4. **Вставятся сжатые логи** с автоматическим удалением дубликатов
+---
 
-### Что делает сжатие
+## ✨ Главные фичи
 
-- ✅ Удаляет полностью дублирующиеся строки
-- ✅ Группирует последовательные повторы (добавляет счётчик "повторялось N раз")
-- ✅ Нормализует временные метки для сравнения
-- ✅ Убирает повторяющиеся значения метрик (WorkingSet, Peak и т.д.)
-- ✅ Нормализует HWND и другие изменяющиеся идентификаторы
-- ✅ Показывает процент экономии токенов
+- **Семантическое сжатие логов:** Алгоритм понимает структуру логов. Он автоматически находит таймстемпы, компоненты `[App]`, ключи `id=` и отрезает ведущие нули в hex-адресах.
+- **Макро-шаблонизация:** Уникальная фича, которая находит машингенерируемые паттерны (например, `User {ID} logged in`) и сворачивает их в короткие макросы с параметрами.
+- **Внутристрочная дедупликация:** Одинаковые спам-строки схлопываются в компактный вид `... xN`.
+- **Бесшовный UX:** Программа висит в системном трее. Вы просто нажимаете глобальный хоткей, и она сама читает буфер, сжимает текст, показывает системное уведомление с процентом сжатия и эмулирует нажатие `Ctrl+V` (Paste).
+- **Молниеносная скорость:** Написано на Rust. Ядро работает на уровне массивов токенов (без аллокаций строк в горячих циклах), сжимая мегабайты текста за доли секунды.
 
-### Пример
+## 🚀 Как использовать
 
-**До (5000 символов):**
-```
-2026-04-18T11:43:40.486 [ExclusionService] ✅ App ALLOWED: C:\...\Cursor.exe
-2026-04-18T11:43:40.511 [WinFocusMonitor] computeIsSecureField: queryMsaaProtected == 0
-2026-04-18T11:43:40.512 [WinFocusMonitor] workerMain: hwnd=00000000016000FE idObject=-4 idChild=0 -> secure=0
-2026-04-18T11:43:40.527 [WinFocusMonitor] computeIsSecureField: queryMsaaProtected == 0
-2026-04-18T11:43:40.527 [WinFocusMonitor] workerMain: hwnd=00000000003B0640 idObject=-4 idChild=-3681 -> secure=0
-2026-04-18T11:43:41.744 [MemDiag] periodic t+9s WorkingSet=364.378906MB Peak=364.378906MB
-2026-04-18T11:43:44.759 [MemDiag] periodic t+12s WorkingSet=277.437500MB Peak=368.765625MB
-2026-04-18T11:43:47.768 [MemDiag] periodic t+15s WorkingSet=280.527344MB Peak=368.765625MB
-2026-04-18T11:43:50.779 [MemDiag] periodic t+18s WorkingSet=280.527344MB Peak=368.765625MB
-```
+1. Запустите `Logs Tokenizer.exe` (появится иконка в трее).
+2. Выделите и скопируйте (`Ctrl+C`) любой большой кусок логов.
+3. Перейдите в мессенджер или ChatGPT.
+4. Нажмите `**Ctrl + Alt + V`**.
+5. Готово! Сжатый текст автоматически вставится в поле ввода.
 
-**После (2000 символов, -60%):**
-```
-[TIMESTAMP] [ExclusionService] ✅ App ALLOWED: C:\...\Cursor.exe
-[TIMESTAMP] [WinFocusMonitor] computeIsSecureField: queryMsaaProtected == 0
-[TIMESTAMP] [WinFocusMonitor] workerMain: hwnd=[HWND] idObject=-4 idChild=[ID] -> secure=0
-    ... (повторялось ещё 1 раз)
-[TIMESTAMP] [MemDiag] periodic t+[X]s WorkingSet=[X]MB Peak=[X]MB
-    ... (повторялось ещё 3 раз)
+## 🛠️ Сборка из исходников
+
+Убедитесь, что у вас установлен Rust (cargo).
+
+```bash
+git clone https://github.com/yourusername/logstokenizer.git
+cd logstokenizer
+cargo build --release
 ```
 
-## Автозапуск при старте Windows
-
-### Через Task Scheduler (рекомендуется)
-
-1. Открыть Task Scheduler (Win+R → `taskschd.msc`)
-2. Create Basic Task
-3. Name: "Logs Tokenizer AutoStart"
-4. Trigger: "At log on"
-5. Action: "Start a program"
-6. Program: `powershell.exe`
-7. Arguments: `-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\dev\LogsTokenizer\src\logs-tokenizer.ps1"`
-8. Finish
-
-### Через Startup папку
-
-Создать ярлык на `start-logs-tokenizer.bat` в:
-```
-%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-```
-
-## Проблемы и решения
-
-### Хоткей не работает
-
-**Проблема:** Ctrl+Alt+V уже используется другим приложением
-
-**Решение:** Закройте другие приложения или измените хоткей в скрипте (строка с `$VK_V`)
-
-### Скрипт не запускается
-
-**Проблема:** PowerShell Execution Policy
-
-**Решение:**
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-### Иконка не появляется в трее
-
-**Проблема:** Скрипт запущен, но иконки нет
-
-**Решение:** Проверьте скрытые иконки в трее (стрелка вверх возле часов)
-
-## Технические детали
-
-- **Язык:** PowerShell 5.1+
-- **Зависимости:** .NET Framework (встроен в Windows)
-- **Хоткей:** Глобальный, работает во всех приложениях
-- **Потребление ресурсов:** ~10-20 МБ RAM
-- **Латентность:** <100ms от нажатия до вставки
-
-## Структура проекта
-
-```
-LogsTokenizer/
-├── src/                          # Основные скрипты
-│   ├── logs-tokenizer.ps1       # Главный скрипт утилиты
-│   └── start-logs-tokenizer.bat # Launcher для Windows
-├── docs/                         # Документация
-├── tests/                        # Тестовые скрипты (не в git)
-├── examples/                     # Примеры логов (не в git)
-├── .gitignore
-├── README.md
-└── start-logs-tokenizer.bat     # Launcher из корня
-```
-
-## Лицензия
-
-MIT License
+Исполняемый файл будет находиться в `target/release/logstokenizer.exe`.
