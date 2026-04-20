@@ -25,3 +25,12 @@ Thumbs.db
 # Build outputs
 bin/
 obj/
+
+*.exe
+*.bat
+*.ps1
+*.py
+
+# Added by cargo
+
+/target
