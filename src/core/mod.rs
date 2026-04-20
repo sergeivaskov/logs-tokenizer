@@ -4,11 +4,33 @@ use once_cell::sync::Lazy;
 
 const BASE62: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+// Pre-compile all static regexes to avoid compiling them in loops or multiple times
+static META_TOKENIZER: Lazy<Regex> = Lazy::new(|| Regex::new(r"#[a-zA-Z0-9]+#|![0-9]+!|[A-Za-z0-9_]+|[^A-Za-z0-9_#!]+").unwrap());
+static NORMAL_TOKENIZER: Lazy<Regex> = Lazy::new(|| Regex::new(r"[A-Za-z0-9_]+|[^A-Za-z0-9_]+").unwrap());
+static NORMAL_SPLIT: Lazy<Regex> = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#)").unwrap());
+static RE_TAGS: Lazy<Regex> = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)").unwrap());
+
+static RE_ZEROS_1: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
+static RE_ZEROS_2: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}(0\b)").unwrap());
+static RE_ZEROS_3: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
+static RE_ZEROS_4: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}(0\b)").unwrap());
+
+static RE_TS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:").unwrap());
+static RE_COMP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[[A-Za-z0-9_-]+\]").unwrap());
+static RE_KEYS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[A-Za-z0-9_]+={1,2}").unwrap());
+static RE_NO_TIME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#T#\d{2}\.\d{3}\s*").unwrap());
+
 pub struct Compressor {
     var_idx: usize,
     meta_idx: usize,
     macro_idx: usize,
     legend: Vec<String>,
+}
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Compressor {
@@ -25,32 +47,34 @@ impl Compressor {
         let num = self.var_idx;
         self.var_idx += 1;
         if num == 0 {
-            return "#0".to_string();
+            return "#0#".to_string();
         }
-        let mut res = String::new();
+        
+        let mut res = Vec::new();
         let mut n = num;
         while n > 0 {
             let rem = n % 62;
-            res.insert(0, BASE62[rem] as char);
+            res.push(BASE62[rem]);
             n /= 62;
         }
-        format!("#{}", res)
+        res.reverse();
+        
+        // BASE62 only contains valid ASCII, so this is safe
+        format!("#{}#", unsafe { String::from_utf8_unchecked(res) })
     }
 
     fn run_bpe(&mut self, mut text: String, max_iterations: usize, is_meta: bool) -> String {
-        let meta_tokenizer = Regex::new(r"#[a-zA-Z0-9]+|[A-Za-z0-9_]+|[^A-Za-z0-9_#]+").unwrap();
-        let normal_tokenizer = Regex::new(r"[A-Za-z0-9_]+|[^A-Za-z0-9_]+").unwrap();
+        let tokenizer = if is_meta { &*META_TOKENIZER } else { &*NORMAL_TOKENIZER };
 
         for _ in 0..max_iterations {
-            let mut substring_counts: HashMap<String, usize> = HashMap::new();
+            let mut substring_counts: HashMap<&[&str], usize> = HashMap::new();
             
-            let normal_split = Regex::new(r"(#(?:T|[0-9a-zA-Z]+))").unwrap();
-            let mut parts_owned = Vec::new();
             let parts: Vec<&str> = if is_meta {
                 text.split('\n').collect()
             } else {
+                let mut parts_owned = Vec::new();
                 let mut last_end = 0;
-                for mat in normal_split.find_iter(&text) {
+                for mat in NORMAL_SPLIT.find_iter(&text) {
                     parts_owned.push(&text[last_end..mat.start()]);
                     last_end = mat.end();
                 }
@@ -58,76 +82,105 @@ impl Compressor {
                 parts_owned
             };
 
-            let tokenizer = if is_meta { &meta_tokenizer } else { &normal_tokenizer };
-
+            let mut all_tokens: Vec<Vec<&str>> = Vec::with_capacity(parts.len());
             for part in parts {
                 if part.trim().is_empty() { continue; }
-                
                 let tokens: Vec<&str> = tokenizer.find_iter(part).map(|m| m.as_str()).collect();
-                let len = tokens.len();
-                if len < 2 { continue; }
+                if tokens.len() >= 2 {
+                    all_tokens.push(tokens);
+                }
+            }
 
+            for tokens in &all_tokens {
+                let len = tokens.len();
                 let max_n = std::cmp::min(if is_meta { 15 } else { 20 }, len);
                 
                 for n in 2..=max_n {
                     for i in 0..=(len - n) {
-                        let phrase = tokens[i..(i + n)].join("");
+                        let slice = &tokens[i..(i + n)];
                         
-                        if phrase.contains('\n') || phrase.contains('\r') { continue; }
-                        if phrase.trim().len() < if is_meta { 5 } else { 4 } { continue; }
-                        if is_meta && !phrase.contains('#') { continue; }
+                        let mut has_newline = false;
+                        let mut has_hash = false;
+                        let mut total_len = 0;
                         
-                        *substring_counts.entry(phrase).or_insert(0) += 1;
+                        for &s in slice {
+                            if s.contains('\n') || s.contains('\r') {
+                                has_newline = true;
+                                break;
+                            }
+                            if is_meta && s.contains('#') {
+                                has_hash = true;
+                            }
+                            total_len += s.len();
+                        }
+                        
+                        if has_newline { continue; }
+                        
+                        let mut joined_trim_len = total_len;
+                        let first = slice[0];
+                        let last = slice[slice.len() - 1];
+                        joined_trim_len -= first.len() - first.trim_start().len();
+                        joined_trim_len -= last.len() - last.trim_end().len();
+                        
+                        if joined_trim_len < if is_meta { 5 } else { 4 } { continue; }
+                        if is_meta && !has_hash { continue; }
+                        
+                        *substring_counts.entry(slice).or_insert(0) += 1;
                     }
                 }
             }
 
-            let mut best_phrase = String::new();
+            let mut best_phrase_slice: &[&str] = &[];
             let mut best_savings = 0_i32;
 
-            for (phrase, count) in &substring_counts {
+            for (slice, count) in &substring_counts {
                 if *count > 1 {
                     let tag_len = if is_meta {
-                        self.meta_idx.to_string().len() + 1
+                        self.meta_idx.to_string().len() + 2
                     } else {
-                        if self.var_idx > 61 { 3 } else { 2 }
+                        let mut n = self.var_idx;
+                        let mut len = 0;
+                        if n == 0 { len = 1; }
+                        while n > 0 { len += 1; n /= 62; }
+                        len + 2
                     };
                     
-                    let savings = (*count as i32) * (phrase.len() as i32 - tag_len as i32) - (tag_len as i32 + 3 + phrase.len() as i32);
+                    let phrase_len: usize = slice.iter().map(|s| s.len()).sum();
+                    
+                    let savings = (*count as i32) * (phrase_len as i32 - tag_len as i32) - (tag_len as i32 + 3 + phrase_len as i32);
                     if savings > best_savings {
                         best_savings = savings;
-                        best_phrase = phrase.clone();
+                        best_phrase_slice = *slice;
                     }
                 }
             }
 
             if best_savings < 5 { break; }
 
+            let best_phrase = best_phrase_slice.join("");
             let token = if is_meta {
-                let t = format!("!{}", self.meta_idx);
+                let t = format!("!{}!", self.meta_idx);
                 self.meta_idx += 1;
                 t
             } else {
                 self.get_next_token()
             };
 
-            let mut escaped = regex::escape(&best_phrase);
-            // Add word boundaries if it starts/ends with word chars
+            let mut escaped_final = regex::escape(&best_phrase);
             if best_phrase.chars().next().unwrap().is_ascii_alphanumeric() || best_phrase.starts_with('_') {
-                escaped = format!(r"\b{}", escaped);
+                escaped_final = format!(r"\b{}", escaped_final);
             }
             if best_phrase.chars().last().unwrap().is_ascii_alphanumeric() || best_phrase.ends_with('_') {
-                escaped = format!(r"{}\b", escaped);
+                escaped_final = format!(r"{}\b", escaped_final);
             }
 
-            if let Ok(re) = Regex::new(&escaped) {
+            if let Ok(re) = Regex::new(&escaped_final) {
                 if is_meta {
                     text = re.replace_all(&text, &token).into_owned();
                 } else {
-                    let normal_split = Regex::new(r"(#(?:T|[0-9a-zA-Z]+))").unwrap();
-                    let mut new_text = String::new();
+                    let mut new_text = String::with_capacity(text.len());
                     let mut last_end = 0;
-                    for mat in normal_split.find_iter(&text) {
+                    for mat in NORMAL_SPLIT.find_iter(&text) {
                         let part = &text[last_end..mat.start()];
                         new_text.push_str(&re.replace_all(part, &token));
                         new_text.push_str(mat.as_str());
@@ -143,7 +196,7 @@ impl Compressor {
                 }
                 self.legend.push(format!("{} = {}", token, display_phrase));
             } else {
-                break; // Regex compilation failed
+                break;
             }
         }
         text
@@ -153,12 +206,10 @@ impl Compressor {
         let mut lines: Vec<String> = text.lines().map(|l| l.trim_end().to_string()).collect();
         let mut templates: HashMap<String, Vec<(usize, String)>> = HashMap::new();
         
-        let re_tags = Regex::new(r"(#(?:T|[0-9a-zA-Z]+)|![0-9]+)").unwrap();
-
         for (i, line) in lines.iter().enumerate() {
             if line.trim().is_empty() { continue; }
             
-            for mat in re_tags.find_iter(line) {
+            for mat in RE_TAGS.find_iter(line) {
                 let mut template = line.clone();
                 template.replace_range(mat.start()..mat.end(), "@");
                 
@@ -178,7 +229,9 @@ impl Compressor {
             }
         }
         
-        template_scores.sort_by(|a, b| b.1.cmp(&a.1));
+        template_scores.sort_by(|a, b| {
+            b.0.len().cmp(&a.0.len()).then(b.1.cmp(&a.1))
+        });
         
         let mut line_templated = vec![false; lines.len()];
         
@@ -192,8 +245,8 @@ impl Compressor {
                     self.legend.push(format!("{} = {}", macro_tag, template));
                     
                     for (i, var) in valid_matches {
-                        let var_clean = var.trim_start_matches(|c| c == '#' || c == '!');
-                        lines[*i] = format!("{}:{}", macro_tag, var_clean);
+                        // Preserve the # or ! prefix by NOT trimming it
+                        lines[*i] = format!("{}:{}", macro_tag, var);
                         line_templated[*i] = true;
                     }
                 }
@@ -203,43 +256,93 @@ impl Compressor {
         lines.join("\n")
     }
 
+    fn run_tag_sequence_macro_templating(&mut self, mut text: String) -> String {
+        // Match sequences of at least 2 tags separated by spaces/tabs
+        let re_seq = Regex::new(r"(?:(?:#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)[ \t]*){2,}").unwrap();
+
+        let mut templates: HashMap<String, usize> = HashMap::new();
+
+        for mat in re_seq.find_iter(&text) {
+            let seq = mat.as_str().trim_end();
+            for tag_mat in RE_TAGS.find_iter(seq) {
+                let mut template = seq.to_string();
+                template.replace_range(tag_mat.start()..tag_mat.end(), "@");
+                *templates.entry(template).or_insert(0) += 1;
+            }
+        }
+
+        let mut template_scores: Vec<(String, usize)> = Vec::new();
+        for (template, &count) in &templates {
+            let savings = (count as i32 - 1) * (template.len() as i32) - 4 * (count as i32) - 5;
+            if savings > 0 || count >= 4 {
+                template_scores.push((template.clone(), count * template.len()));
+            }
+        }
+        
+        template_scores.sort_by(|a, b| {
+            b.0.len().cmp(&a.0.len()).then(b.1.cmp(&a.1))
+        });
+
+        for (template, _) in template_scores {
+            let parts: Vec<&str> = template.split('@').collect();
+            if parts.len() != 2 { continue; }
+            
+            let prefix = regex::escape(parts[0]);
+            let suffix = regex::escape(parts[1]);
+            
+            // We use \1 to match the same closing character as the opening one
+            let re_str = format!(r"{}([#!])([0-9a-zA-Z]+)\1{}", prefix, suffix);
+            
+            if let Ok(re) = Regex::new(&re_str) {
+                let count = re.find_iter(&text).count();
+                
+                let savings = (count as i32 - 1) * (template.len() as i32) - 4 * (count as i32) - 5;
+                
+                if savings > 0 || count >= 4 {
+                    let macro_tag = format!("&{}", self.macro_idx);
+                    self.macro_idx += 1;
+                    self.legend.push(format!("{} = {}", macro_tag, template));
+                    
+                    // Keep the # or ! prefix and suffix in the replacement
+                    let rep = format!("{}:$1$2$1", macro_tag);
+                    text = re.replace_all(&text, rep.as_str()).into_owned();
+                }
+            }
+        }
+        
+        text
+    }
+
     pub fn compress(&mut self, mut text: String) -> String {
         if text.trim().is_empty() {
             return text;
         }
 
         // 0. Strip leading zeros
-        static RE_ZEROS_1: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
-        static RE_ZEROS_2: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}(0\b)").unwrap());
-        static RE_ZEROS_3: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
-        static RE_ZEROS_4: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}(0\b)").unwrap());
-
         text = RE_ZEROS_1.replace_all(&text, "$1").into_owned();
         text = RE_ZEROS_2.replace_all(&text, "$1").into_owned();
         text = RE_ZEROS_3.replace_all(&text, "${1}${2}").into_owned();
         text = RE_ZEROS_4.replace_all(&text, "${1}${2}").into_owned();
 
         // 1. Timestamp Prefix
-        static RE_TS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:").unwrap());
-        let mut ts_counts: HashMap<String, usize> = HashMap::new();
+        let mut ts_counts: HashMap<&str, usize> = HashMap::new();
         for mat in RE_TS.find_iter(&text) {
-            *ts_counts.entry(mat.as_str().to_string()).or_insert(0) += 1;
+            *ts_counts.entry(mat.as_str()).or_insert(0) += 1;
         }
         
-        if let Some((best_ts, _)) = ts_counts.iter().max_by_key(|&(_, count)| count) {
-            let best_ts_clone = best_ts.clone();
-            text = text.replace(&best_ts_clone, "#T");
-            self.legend.push(format!("#T = {}", best_ts_clone));
+        if let Some((&best_ts, _)) = ts_counts.iter().max_by_key(|&(_, count)| count) {
+            let best_ts_clone = best_ts.to_string();
+            text = text.replace(&best_ts_clone, "#T#");
+            self.legend.push(format!("#T# = {}", best_ts_clone));
         }
 
         // 2. Components [XXX]
-        static RE_COMP: Lazy<Regex> = Lazy::new(|| Regex::new(r"\[[A-Za-z0-9_-]+\]").unwrap());
-        let mut comp_counts: HashMap<String, usize> = HashMap::new();
+        let mut comp_counts: HashMap<&str, usize> = HashMap::new();
         for mat in RE_COMP.find_iter(&text) {
-            *comp_counts.entry(mat.as_str().to_string()).or_insert(0) += 1;
+            *comp_counts.entry(mat.as_str()).or_insert(0) += 1;
         }
         
-        let mut sorted_comps: Vec<_> = comp_counts.into_iter().filter(|&(_, c)| c > 1).collect();
+        let mut sorted_comps: Vec<_> = comp_counts.into_iter().filter(|&(_, c)| c > 1).map(|(k, v)| (k.to_string(), v)).collect();
         sorted_comps.sort_by(|a, b| b.1.cmp(&a.1));
         
         for (comp, _) in sorted_comps {
@@ -249,13 +352,12 @@ impl Compressor {
         }
 
         // 3. Common Keys
-        static RE_KEYS: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b[A-Za-z0-9_]+={1,2}").unwrap());
-        let mut key_counts: HashMap<String, usize> = HashMap::new();
+        let mut key_counts: HashMap<&str, usize> = HashMap::new();
         for mat in RE_KEYS.find_iter(&text) {
-            *key_counts.entry(mat.as_str().to_string()).or_insert(0) += 1;
+            *key_counts.entry(mat.as_str()).or_insert(0) += 1;
         }
         
-        let mut sorted_keys: Vec<_> = key_counts.into_iter().filter(|&(_, c)| c > 1).collect();
+        let mut sorted_keys: Vec<_> = key_counts.into_iter().filter(|&(_, c)| c > 1).map(|(k, v)| (k.to_string(), v)).collect();
         sorted_keys.sort_by(|a, b| b.1.cmp(&a.1));
         
         for (key, _) in sorted_keys {
@@ -273,13 +375,14 @@ impl Compressor {
         // 5. MACRO TEMPLATING
         text = self.run_macro_templating(text);
         
+        // 5.5 TAG SEQUENCE MACRO TEMPLATING
+        text = self.run_tag_sequence_macro_templating(text);
+        
         // 6. Intra-line deduplication
         let mut final_lines = Vec::new();
         let mut dup_count = 0;
         let mut last_line = String::new();
         
-        static RE_NO_TIME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#T\d{2}\.\d{3}\s*").unwrap());
-
         for line in text.lines() {
             if line.trim().is_empty() {
                 continue;
