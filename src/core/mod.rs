@@ -3,9 +3,18 @@ use std::collections::HashMap;
 use once_cell::sync::Lazy;
 
 const BASE62: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const RADIX: usize = 62;
+
+// Tuning parameters for compression
+const BPE_MAX_ITERATIONS: usize     = 100;
+const BPE_MIN_SAVINGS: i32          = 5;
+const MACRO_MIN_COUNT: usize        = 4;
+const MACRO_MIN_TEMPLATE_LEN: usize = 5;
+const MACRO_OVERHEAD_MULT: i32      = 4;
+const MACRO_OVERHEAD_CONST: i32     = 5;
 
 // Pre-compile static regexes for one-off passes
-static RE_TAGS: Lazy<Regex>    = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)").unwrap());
+static RE_TAGS: Lazy<Regex>    = Lazy::new(|| Regex::new(r"(#(?:T|[0-9a-zA-Z]+)#|![0-9a-zA-Z]+!)").unwrap());
 static RE_ZEROS_1: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
 static RE_ZEROS_2: Lazy<Regex> = Lazy::new(|| Regex::new(r"\b0{3,}(0\b)").unwrap());
 static RE_ZEROS_3: Lazy<Regex> = Lazy::new(|| Regex::new(r"(\b0x)0{3,}([1-9A-Fa-f][0-9A-Fa-f]*\b)").unwrap());
@@ -23,14 +32,34 @@ fn advance_while(bytes: &[u8], mut i: usize, cond: impl Fn(u8) -> bool) -> usize
 
 #[inline]
 fn calc_savings(count: usize, len: usize) -> i32 {
-    (count as i32 - 1) * (len as i32) - 4 * (count as i32) - 5
+    (count as i32 - 1) * (len as i32) - MACRO_OVERHEAD_MULT * (count as i32) - MACRO_OVERHEAD_CONST
+}
+
+#[inline]
+fn to_base62(mut n: usize) -> String {
+    if n == 0 { return "0".to_string(); }
+    let mut res = Vec::new();
+    while n > 0 {
+        res.push(BASE62[n % RADIX]);
+        n /= RADIX;
+    }
+    res.reverse();
+    unsafe { String::from_utf8_unchecked(res) }
+}
+
+#[inline]
+fn base62_len(mut n: usize) -> usize {
+    if n == 0 { return 1; }
+    let mut len = 0;
+    while n > 0 { len += 1; n /= RADIX; }
+    len
 }
 
 pub struct Compressor {
-    var_idx: usize,
-    meta_idx: usize,
+    var_idx  : usize,
+    meta_idx : usize,
     macro_idx: usize,
-    legend: Vec<String>,
+    legend   : Vec<String>,
 }
 
 trait BpeStrategy {
@@ -82,13 +111,8 @@ impl BpeStrategy for NormalBpe {
     fn max_n(&self) -> usize { 20 }
     fn min_trim_len(&self) -> usize { 4 }
     fn requires_hash(&self) -> bool { false }
-    fn tag_len(&self, comp: &Compressor) -> usize {
-        let (mut n, mut len) = (comp.var_idx, 0);
-        if n == 0 { len = 1; }
-        while n > 0 { len += 1; n /= 62; }
-        len + 2
-    }
-    fn next_token(&self, comp: &mut Compressor) -> String { comp.get_next_token() }
+    fn tag_len(&self, comp: &Compressor) -> usize { base62_len(comp.var_idx) + 2 }
+    fn next_token(&self, comp: &mut Compressor) -> String { comp.get_var_token() }
 }
 
 struct MetaBpe;
@@ -101,7 +125,7 @@ impl BpeStrategy for MetaBpe {
                 let j = advance_while(bytes, i + 1, |c| c.is_ascii_alphanumeric());
                 if j < bytes.len() && bytes[j] == b'#' { tokens.push(&text[i..=j]); i = j + 1; continue; }
             } else if b == b'!' {
-                let j = advance_while(bytes, i + 1, |c| c.is_ascii_digit());
+                let j = advance_while(bytes, i + 1, |c| c.is_ascii_alphanumeric());
                 if j < bytes.len() && bytes[j] == b'!' { tokens.push(&text[i..=j]); i = j + 1; continue; }
             }
             
@@ -133,12 +157,8 @@ impl BpeStrategy for MetaBpe {
     fn max_n(&self) -> usize { 15 }
     fn min_trim_len(&self) -> usize { 5 }
     fn requires_hash(&self) -> bool { true }
-    fn tag_len(&self, comp: &Compressor) -> usize { comp.meta_idx.to_string().len() + 2 }
-    fn next_token(&self, comp: &mut Compressor) -> String {
-        let t = format!("!{}!", comp.meta_idx);
-        comp.meta_idx += 1;
-        t
-    }
+    fn tag_len(&self, comp: &Compressor) -> usize { base62_len(comp.meta_idx) + 2 }
+    fn next_token(&self, comp: &mut Compressor) -> String { comp.get_meta_token() }
 }
 
 impl Default for Compressor { fn default() -> Self { Self::new() } }
@@ -148,18 +168,22 @@ impl Compressor {
         Self { var_idx: 0, meta_idx: 1, macro_idx: 1, legend: Vec::new() }
     }
 
-    fn get_next_token(&mut self) -> String {
-        let num = self.var_idx;
+    fn get_var_token(&mut self) -> String {
+        let t = format!("#{}#", to_base62(self.var_idx));
         self.var_idx += 1;
-        if num == 0 { return "#0#".to_string(); }
-        
-        let (mut res, mut n) = (Vec::new(), num);
-        while n > 0 {
-            res.push(BASE62[n % 62]);
-            n /= 62;
-        }
-        res.reverse();
-        format!("#{}#", unsafe { String::from_utf8_unchecked(res) })
+        t
+    }
+
+    fn get_meta_token(&mut self) -> String {
+        let t = format!("!{}!", to_base62(self.meta_idx));
+        self.meta_idx += 1;
+        t
+    }
+
+    fn get_macro_token(&mut self) -> String {
+        let t = format!("&{}", to_base62(self.macro_idx));
+        self.macro_idx += 1;
+        t
     }
 
     fn replace_frequent(&mut self, text: &mut String, re: &Regex) {
@@ -170,7 +194,7 @@ impl Compressor {
         sorted.sort_by(|a, b| b.1.cmp(&a.1));
         
         for (pat, _) in sorted {
-            let token = self.get_next_token();
+            let token = self.get_var_token();
             *text = text.replace(&pat, &token);
             self.legend.push(format!("{} = {}", token, pat));
         }
@@ -239,7 +263,7 @@ impl Compressor {
                 }
             }
 
-            if best_savings < 5 { break; }
+            if best_savings < BPE_MIN_SAVINGS { break; }
 
             let best_vec = best_slice.to_vec();
             let best_str: String = best_vec.iter().map(|&id| id_to_str[id as usize].as_str()).collect();
@@ -279,7 +303,7 @@ impl Compressor {
     fn process_templates(&mut self, templates: &HashMap<String, Vec<(usize, String)>>, lines: &mut [String]) {
         let mut scores: Vec<_> = templates.iter()
             .map(|(t, m)| (t.clone(), m.len(), calc_savings(m.len(), t.len())))
-            .filter(|&(_, count, sav)| sav > 0 || count >= 4)
+            .filter(|&(_, count, sav)| sav > 0 || count >= MACRO_MIN_COUNT)
             .collect();
         
         scores.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(b.1.cmp(&a.1)));
@@ -289,8 +313,7 @@ impl Compressor {
             if let Some(matches) = templates.get(&template) {
                 let valid: Vec<_> = matches.iter().filter(|(i, _)| !templated[*i]).collect();
                 if valid.len() > 1 {
-                    let macro_tag = format!("&{}", self.macro_idx);
-                    self.macro_idx += 1;
+                    let macro_tag = self.get_macro_token();
                     self.legend.push(format!("{} = {}", macro_tag, template));
                     
                     for (i, var) in valid {
@@ -311,7 +334,7 @@ impl Compressor {
             for mat in RE_TAGS.find_iter(line) {
                 let mut template = line.clone();
                 template.replace_range(mat.start()..mat.end(), "@");
-                if template.len() >= 5 {
+                if template.len() >= MACRO_MIN_TEMPLATE_LEN {
                     templates.entry(template).or_default().push((i, mat.as_str().to_string()));
                 }
             }
@@ -322,7 +345,7 @@ impl Compressor {
     }
 
     fn run_tag_sequence_macro_templating(&mut self, mut text: String) -> String {
-        let re_seq = Regex::new(r"(?:(?:#(?:T|[0-9a-zA-Z]+)#|![0-9]+!)[ \t]*){2,}").unwrap();
+        let re_seq = Regex::new(r"(?:(?:#(?:T|[0-9a-zA-Z]+)#|![0-9a-zA-Z]+!)[ \t]*){2,}").unwrap();
         let mut templates: HashMap<String, usize> = HashMap::new();
 
         for mat in re_seq.find_iter(&text) {
@@ -336,7 +359,7 @@ impl Compressor {
 
         let mut scores: Vec<_> = templates.iter()
             .map(|(t, &c)| (t.clone(), c, calc_savings(c, t.len())))
-            .filter(|&(_, count, sav)| sav > 0 || count >= 4)
+            .filter(|&(_, count, sav)| sav > 0 || count >= MACRO_MIN_COUNT)
             .collect();
         
         scores.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(b.1.cmp(&a.1)));
@@ -348,9 +371,8 @@ impl Compressor {
             let re_str = format!(r"{}([#!])([0-9a-zA-Z]+)\1{}", regex::escape(parts[0]), regex::escape(parts[1]));
             if let Ok(re) = Regex::new(&re_str) {
                 let count = re.find_iter(&text).count();
-                if calc_savings(count, template.len()) > 0 || count >= 4 {
-                    let macro_tag = format!("&{}", self.macro_idx);
-                    self.macro_idx += 1;
+                if calc_savings(count, template.len()) > 0 || count >= MACRO_MIN_COUNT {
+                    let macro_tag = self.get_macro_token();
                     self.legend.push(format!("{} = {}", macro_tag, template));
                     text = re.replace_all(&text, format!("{}:$1$2$1", macro_tag).as_str()).into_owned();
                 }
@@ -400,8 +422,8 @@ impl Compressor {
         self.replace_frequent(&mut text, &RE_COMP);
         self.replace_frequent(&mut text, &RE_KEYS);
 
-        text = self.run_bpe(text, 100, NormalBpe);
-        text = self.run_bpe(text, 100, MetaBpe);
+        text = self.run_bpe(text, BPE_MAX_ITERATIONS, NormalBpe);
+        text = self.run_bpe(text, BPE_MAX_ITERATIONS, MetaBpe);
         text = self.run_macro_templating(text);
         text = self.run_tag_sequence_macro_templating(text);
 

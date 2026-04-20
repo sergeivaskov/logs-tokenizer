@@ -23,6 +23,10 @@ winreg = "0.56.0"
 image = "0.25.10"
 tauri-winrt-notification = "0.7.2"
 ico = "0.5.0"
+log = "0.4.29"
+simplelog = "0.12.2"
+anyhow = "1.0.102"
+tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse"] }
