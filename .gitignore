@@ -1,0 +1,23 @@
+# PowerShell
+*.ps1~
+*.swp
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+bin/
+obj/
