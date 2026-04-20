@@ -15,7 +15,7 @@ start-smart-paste.bat
 
 **Вариант 2: Через PowerShell**
 ```powershell
-powershell -ExecutionPolicy Bypass -File smart-paste-logs.ps1
+powershell -ExecutionPolicy Bypass -File src\smart-paste-logs.ps1
 ```
 
 ### Использование
@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File smart-paste-logs.ps1
 4. Trigger: "At log on"
 5. Action: "Start a program"
 6. Program: `powershell.exe`
-7. Arguments: `-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\dev\KeyRay\.cursor\scripts\smart-paste-logs.ps1"`
+7. Arguments: `-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\dev\LogsTokenizer\src\smart-paste-logs.ps1"`
 8. Finish
 
 ### Через Startup папку
@@ -110,6 +110,20 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Потребление ресурсов:** ~10-20 МБ RAM
 - **Латентность:** <100ms от нажатия до вставки
 
+## Структура проекта
+
+```
+LogsTokenizer/
+├── src/                          # Основные скрипты
+│   ├── smart-paste-logs.ps1     # Главный скрипт утилиты
+│   └── start-smart-paste.bat    # Launcher для Windows
+├── docs/                         # Документация
+├── tests/                        # Тестовые скрипты (не в git)
+├── examples/                     # Примеры логов (не в git)
+├── .gitignore
+└── README.md
+```
+
 ## Лицензия
 
-MIT License - часть проекта KeyRay
+MIT License
