@@ -24,60 +24,14 @@ pub struct Compressor {
     legend: Vec<String>,
 }
 
-fn is_word_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
-}
-
-fn fast_replace_word_bounded(text: &str, phrase: &str, token: &str) -> String {
-    if phrase.is_empty() {
-        return text.to_string();
-    }
-    
-    let mut result = String::with_capacity(text.len());
-    let mut last_end = 0;
-    
-    let phrase_starts_word = phrase.chars().next().map_or(false, is_word_char);
-    let phrase_ends_word = phrase.chars().last().map_or(false, is_word_char);
-
-    let mut start_idx = 0;
-    while let Some(idx) = text[start_idx..].find(phrase) {
-        let absolute_idx = start_idx + idx;
-        let end_idx = absolute_idx + phrase.len();
-        
-        let mut valid = true;
-        if phrase_starts_word {
-            if let Some(prev_char) = text[..absolute_idx].chars().next_back() {
-                if is_word_char(prev_char) { valid = false; }
-            }
-        }
-        if valid && phrase_ends_word {
-            if let Some(next_char) = text[end_idx..].chars().next() {
-                if is_word_char(next_char) { valid = false; }
-            }
-        }
-        
-        if valid {
-            result.push_str(&text[last_end..absolute_idx]);
-            result.push_str(token);
-            last_end = end_idx;
-            start_idx = end_idx;
-        } else {
-            start_idx = absolute_idx + phrase.chars().next().unwrap().len_utf8();
-        }
-    }
-    result.push_str(&text[last_end..]);
-    result
-}
-
 trait BpeStrategy {
     fn tokenize<'a>(&self, text: &'a str) -> Vec<&'a str>;
-    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str>;
+    fn split_text_with_separators<'a>(&self, text: &'a str) -> (Vec<&'a str>, Vec<&'a str>);
     fn max_n(&self) -> usize;
     fn min_trim_len(&self) -> usize;
     fn requires_hash(&self) -> bool;
     fn tag_len(&self, compressor: &Compressor) -> usize;
     fn next_token(&self, compressor: &mut Compressor) -> String;
-    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String;
 }
 
 struct NormalBpe;
@@ -98,8 +52,9 @@ impl BpeStrategy for NormalBpe {
         tokens
     }
 
-    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str> {
+    fn split_text_with_separators<'a>(&self, text: &'a str) -> (Vec<&'a str>, Vec<&'a str>) {
         let mut parts = Vec::new();
+        let mut separators = Vec::new();
         let mut last_end = 0;
         let bytes = text.as_bytes();
         let mut i = 0;
@@ -113,6 +68,7 @@ impl BpeStrategy for NormalBpe {
                 }
                 if j < bytes.len() && bytes[j] == b'#' && j > i + 1 {
                     parts.push(&text[last_end..i]);
+                    separators.push(&text[i..=j]);
                     last_end = j + 1;
                     i = j + 1;
                     continue;
@@ -121,7 +77,7 @@ impl BpeStrategy for NormalBpe {
             i += 1;
         }
         parts.push(&text[last_end..]);
-        parts
+        (parts, separators)
     }
 
     fn max_n(&self) -> usize { 20 }
@@ -136,33 +92,6 @@ impl BpeStrategy for NormalBpe {
     }
     fn next_token(&self, compressor: &mut Compressor) -> String {
         compressor.get_next_token()
-    }
-    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String {
-        let mut new_text = String::with_capacity(text.len());
-        let mut last_end = 0;
-        let bytes = text.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'#' {
-                let mut j = i + 1;
-                if j < bytes.len() && bytes[j] == b'T' {
-                    j += 1;
-                } else {
-                    while j < bytes.len() && bytes[j].is_ascii_alphanumeric() { j += 1; }
-                }
-                if j < bytes.len() && bytes[j] == b'#' && j > i + 1 {
-                    let part = &text[last_end..i];
-                    new_text.push_str(&fast_replace_word_bounded(part, phrase, token));
-                    new_text.push_str(&text[i..=j]);
-                    last_end = j + 1;
-                    i = j + 1;
-                    continue;
-                }
-            }
-            i += 1;
-        }
-        new_text.push_str(&fast_replace_word_bounded(&text[last_end..], phrase, token));
-        new_text
     }
 }
 
@@ -207,9 +136,22 @@ impl BpeStrategy for MetaBpe {
         tokens
     }
 
-    fn split_text<'a>(&self, text: &'a str) -> Vec<&'a str> {
-        text.split('\n').collect()
+    fn split_text_with_separators<'a>(&self, text: &'a str) -> (Vec<&'a str>, Vec<&'a str>) {
+        let mut parts = Vec::new();
+        let mut separators = Vec::new();
+        let mut last_end = 0;
+        let bytes = text.as_bytes();
+        for i in 0..bytes.len() {
+            if bytes[i] == b'\n' {
+                parts.push(&text[last_end..i]);
+                separators.push("\n");
+                last_end = i + 1;
+            }
+        }
+        parts.push(&text[last_end..]);
+        (parts, separators)
     }
+
     fn max_n(&self) -> usize { 15 }
     fn min_trim_len(&self) -> usize { 5 }
     fn requires_hash(&self) -> bool { true }
@@ -220,9 +162,6 @@ impl BpeStrategy for MetaBpe {
         let t = format!("!{}!", compressor.meta_idx);
         compressor.meta_idx += 1;
         t
-    }
-    fn replace_text(&self, text: &str, phrase: &str, token: &str) -> String {
-        fast_replace_word_bounded(text, phrase, token)
     }
 }
 
@@ -262,34 +201,56 @@ impl Compressor {
         format!("#{}#", unsafe { String::from_utf8_unchecked(res) })
     }
 
-    fn run_bpe<S: BpeStrategy>(&mut self, mut text: String, max_iterations: usize, strategy: S) -> String {
-        for _ in 0..max_iterations {
-            let mut substring_counts: HashMap<&[&str], usize> = HashMap::new();
-            
-            let parts = strategy.split_text(&text);
-
-            let mut all_tokens: Vec<Vec<&str>> = Vec::with_capacity(parts.len());
-            for part in parts {
-                if part.trim().is_empty() { continue; }
-                let tokens = strategy.tokenize(part);
-                if tokens.len() >= 2 {
-                    all_tokens.push(tokens);
-                }
+    fn run_bpe<S: BpeStrategy>(&mut self, text: String, max_iterations: usize, strategy: S) -> String {
+        let mut id_to_str: Vec<String> = Vec::new();
+        let mut str_to_id: HashMap<String, u32> = HashMap::new();
+        
+        let mut get_or_add = |s: &str| -> u32 {
+            if let Some(&id) = str_to_id.get(s) {
+                id
+            } else {
+                let id = id_to_str.len() as u32;
+                id_to_str.push(s.to_string());
+                str_to_id.insert(s.to_string(), id);
+                id
             }
+        };
 
-            for tokens in &all_tokens {
-                let len = tokens.len();
-                let max_n = std::cmp::min(strategy.max_n(), len);
+        let (part_strs, separators) = strategy.split_text_with_separators(&text);
+        
+        let mut parts: Vec<Vec<u32>> = Vec::with_capacity(part_strs.len());
+        for p in part_strs {
+            if p.is_empty() {
+                parts.push(Vec::new());
+                continue;
+            }
+            let tokens = strategy.tokenize(p);
+            let mut part_ids = Vec::with_capacity(tokens.len());
+            for t in tokens {
+                part_ids.push(get_or_add(t));
+            }
+            parts.push(part_ids);
+        }
+
+        for _ in 0..max_iterations {
+            let mut substring_counts: HashMap<&[u32], usize> = HashMap::new();
+            let max_n = strategy.max_n();
+            
+            for part in &parts {
+                let len = part.len();
+                if len < 2 { continue; }
+                let limit = std::cmp::min(max_n, len);
                 
-                for n in 2..=max_n {
+                for n in 2..=limit {
                     for i in 0..=(len - n) {
-                        let slice = &tokens[i..(i + n)];
+                        let slice = &part[i..(i + n)];
                         
                         let mut has_newline = false;
                         let mut has_hash = false;
                         let mut total_len = 0;
                         
-                        for &s in slice {
+                        for &id in slice {
+                            let s = &id_to_str[id as usize];
                             if s.contains('\n') || s.contains('\r') {
                                 has_newline = true;
                                 break;
@@ -303,10 +264,10 @@ impl Compressor {
                         if has_newline { continue; }
                         
                         let mut joined_trim_len = total_len;
-                        let first = slice[0];
-                        let last = slice[slice.len() - 1];
-                        joined_trim_len -= first.len() - first.trim_start().len();
-                        joined_trim_len -= last.len() - last.trim_end().len();
+                        let first_s = &id_to_str[slice[0] as usize];
+                        let last_s = &id_to_str[slice[slice.len() - 1] as usize];
+                        joined_trim_len -= first_s.len() - first_s.trim_start().len();
+                        joined_trim_len -= last_s.len() - last_s.trim_end().len();
                         
                         if joined_trim_len < strategy.min_trim_len() { continue; }
                         if strategy.requires_hash() && !has_hash { continue; }
@@ -316,13 +277,13 @@ impl Compressor {
                 }
             }
 
-            let mut best_phrase_slice: &[&str] = &[];
+            let mut best_phrase_slice: &[u32] = &[];
             let mut best_savings = 0_i32;
 
             for (slice, count) in &substring_counts {
                 if *count > 1 {
                     let tag_len = strategy.tag_len(self);
-                    let phrase_len: usize = slice.iter().map(|s| s.len()).sum();
+                    let phrase_len: usize = slice.iter().map(|&id| id_to_str[id as usize].len()).sum();
                     
                     let savings = (*count as i32) * (phrase_len as i32 - tag_len as i32) - (tag_len as i32 + 3 + phrase_len as i32);
                     if savings > best_savings {
@@ -334,10 +295,36 @@ impl Compressor {
 
             if best_savings < 5 { break; }
 
-            let best_phrase = best_phrase_slice.join("");
+            let best_phrase_vec = best_phrase_slice.to_vec();
+            let best_phrase: String = best_phrase_vec.iter().map(|&id| id_to_str[id as usize].as_str()).collect();
             let token = strategy.next_token(self);
+            
+            let new_id = id_to_str.len() as u32;
+            id_to_str.push(token.clone());
+            str_to_id.insert(token.clone(), new_id);
 
-            text = strategy.replace_text(&text, &best_phrase, &token);
+            let slice_len = best_phrase_vec.len();
+
+            for part in &mut parts {
+                if part.len() < slice_len { continue; }
+                
+                let mut new_part = Vec::with_capacity(part.len());
+                let mut i = 0;
+                while i <= part.len() - slice_len {
+                    if &part[i..i + slice_len] == best_phrase_vec.as_slice() {
+                        new_part.push(new_id);
+                        i += slice_len;
+                    } else {
+                        new_part.push(part[i]);
+                        i += 1;
+                    }
+                }
+                while i < part.len() {
+                    new_part.push(part[i]);
+                    i += 1;
+                }
+                *part = new_part;
+            }
 
             let mut display_phrase = best_phrase;
             if display_phrase.starts_with(' ') || display_phrase.ends_with(' ') {
@@ -345,7 +332,18 @@ impl Compressor {
             }
             self.legend.push(format!("{} = {}", token, display_phrase));
         }
-        text
+
+        let mut final_text = String::with_capacity(text.len());
+        for (i, part) in parts.iter().enumerate() {
+            for &id in part {
+                final_text.push_str(&id_to_str[id as usize]);
+            }
+            if i < separators.len() {
+                final_text.push_str(separators[i]);
+            }
+        }
+        
+        final_text
     }
 
     fn run_macro_templating(&mut self, text: String) -> String {
