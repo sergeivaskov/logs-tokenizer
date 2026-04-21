@@ -1,10 +1,8 @@
-name: 🚀 Publish Release
-run-name: Release by @${{ github.actor }}
+name: Release
 
 on:
-  workflow_dispatch:  # Только ручной запуск
+  workflow_dispatch:
     inputs:
-      # Выбор платформ для сборки
       build_windows:
         description: 'Build for Windows'
         required: true
@@ -29,7 +27,6 @@ on:
         type: boolean
         default: false
       
-      # Управление версией
       version_increment:
         description: 'Auto increment version'
         required: true
@@ -51,7 +48,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Управление версией
   version:
     name: Update Version
     runs-on: ubuntu-latest
@@ -85,14 +81,12 @@ jobs:
       - name: Calculate new version
         id: version
         run: |
-          # Если указана ручная версия, используем её
           if [ -n "${{ inputs.manual_version }}" ]; then
             NEW_VERSION="${{ inputs.manual_version }}"
             echo "Using manual version: $NEW_VERSION"
           else
             CURRENT="${{ steps.current_version.outputs.current }}"
             
-            # Если текущей версии нет или version_increment = none, используем 1.0.0
             if [ -z "$CURRENT" ] || [ "${{ inputs.version_increment }}" = "none" ]; then
               if [ -z "$CURRENT" ]; then
                 NEW_VERSION="1.0.0"
@@ -102,10 +96,8 @@ jobs:
                 echo "No increment, keeping current: $NEW_VERSION"
               fi
             else
-              # Парсим версию
               IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
               
-              # Увеличиваем версию согласно выбору
               case "${{ inputs.version_increment }}" in
                 major)
                   MAJOR=$((MAJOR + 1))
@@ -151,7 +143,6 @@ jobs:
           git tag ${{ steps.version.outputs.tag }}
           git push origin ${{ steps.version.outputs.tag }}
 
-  # Сборка для выбранных платформ
   build:
     name: Build - ${{ matrix.platform.name }}
     needs: version
@@ -201,7 +192,7 @@ jobs:
           if [ "${{ matrix.platform.name }}" = "linux-x64" ] || \
              [ "${{ matrix.platform.name }}" = "macos-x64" ] || \
              [ "${{ matrix.platform.name }}" = "macos-arm64" ]; then
-            echo "⚠️ Warning: ${{ matrix.platform.name }} is currently disabled"
+            echo "Warning: ${{ matrix.platform.name }} is currently disabled"
           fi
         shell: bash
 
@@ -254,7 +245,6 @@ jobs:
           path: Logs.Tokenizer.*
           if-no-files-found: ignore
 
-  # Создание релиза
   release:
     name: Create GitHub Release
     needs: [version, build]
@@ -279,7 +269,6 @@ jobs:
         id: changelog
         shell: bash
         run: |
-          # Попытка получить предыдущий тег
           PREV_TAG=$(git describe --tags --abbrev=0 ${{ needs.version.outputs.tag }}^ 2>/dev/null || echo "")
           
           if [ -z "$PREV_TAG" ]; then
@@ -299,20 +288,20 @@ jobs:
           DIRECT_LINKS=""
           
           if [ "${{ inputs.build_windows }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **Windows (x64)**: [\`Logs.Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs.Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🪟 [**Download Logs.Tokenizer.exe**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
+            PLATFORMS="${PLATFORMS}- Windows (x64): [\`Logs.Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs.Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.exe](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
           fi
           if [ "${{ inputs.build_linux }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **Linux (x64)**: [\`Logs.Tokenizer.linux-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🐧 [**Download Logs.Tokenizer.linux-x64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
+            PLATFORMS="${PLATFORMS}- Linux (x64): [\`Logs.Tokenizer.linux-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.linux-x64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
           fi
           if [ "${{ inputs.build_macos_intel }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **macOS Intel**: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs.Tokenizer.macos-x64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
+            PLATFORMS="${PLATFORMS}- macOS Intel: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-x64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
           fi
           if [ "${{ inputs.build_macos_arm }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **macOS Apple Silicon**: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs.Tokenizer.macos-arm64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
+            PLATFORMS="${PLATFORMS}- macOS Apple Silicon: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-arm64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
           fi
           
           echo "platforms<<EOF" >> $GITHUB_OUTPUT
@@ -329,25 +318,25 @@ jobs:
           tag_name: ${{ needs.version.outputs.tag }}
           name: Release ${{ needs.version.outputs.version }}
           body: |
-            ## 📦 Release ${{ needs.version.outputs.version }}
+            ## Release ${{ needs.version.outputs.version }}
             
-            ### 📝 Changelog
+            ### Changelog
             ${{ steps.changelog.outputs.changelog }}
             
-            ### ⬇️ Direct Downloads
+            ### Direct Downloads
             ${{ steps.platforms.outputs.direct_links }}
             
-            ### 📥 Installation
+            ### Installation
             1. Click the download link above for your platform
             2. Run `Logs.Tokenizer.exe` (Windows) or `Logs.Tokenizer.*` (macOS/Linux)
             3. No extraction needed - it's a standalone executable!
             
-            ### 💡 Usage
+            ### Usage
             1. Launch the application (icon appears in system tray)
             2. Copy any logs with `Ctrl+C`
             3. Press `Ctrl+Alt+V` to compress and paste automatically
             
-            ### ℹ️ Version Info
+            ### Version Info
             - **Version**: ${{ needs.version.outputs.version }}
             - **Build Date**: ${{ github.event.head_commit.timestamp }}
             - **Commit**: ${{ github.sha }}
