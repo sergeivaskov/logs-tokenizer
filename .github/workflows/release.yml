@@ -1,4 +1,4 @@
-name: Release Build
+name: Release
 
 on:
   workflow_dispatch:  # Только ручной запуск
@@ -50,26 +50,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Проверка доступа - только владелец репозитория
-  check_permission:
-    name: Check Permission
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check if user is repository owner
-        run: |
-          if [ "${{ github.actor }}" != "${{ github.repository_owner }}" ]; then
-            echo "❌ Access denied: Only repository owner can run this workflow"
-            echo "Actor: ${{ github.actor }}"
-            echo "Owner: ${{ github.repository_owner }}"
-            exit 1
-          fi
-          echo "✅ Access granted for repository owner"
-
   # Управление версией
   version:
     name: Update Version
-    needs: check_permission
     runs-on: ubuntu-latest
+    if: github.actor == github.repository_owner
     outputs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
@@ -251,25 +236,21 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.platform.target }}
 
-      - name: Prepare release binary (Windows)
-        if: matrix.platform.os == 'windows-latest'
+      - name: Prepare release binary
         shell: bash
         run: |
-          cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs Tokenizer.exe"
-
-      - name: Prepare release binary (Unix)
-        if: matrix.platform.os != 'windows-latest'
-        run: |
-          cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs Tokenizer"
-          chmod +x "Logs Tokenizer"
+          if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
+            cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs.Tokenizer.exe"
+          else
+            cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs.Tokenizer.${{ matrix.platform.name }}"
+            chmod +x "Logs.Tokenizer.${{ matrix.platform.name }}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: logstokenizer-${{ matrix.platform.name }}
-          path: |
-            Logs Tokenizer.exe
-            Logs Tokenizer
+          path: Logs.Tokenizer.*
           if-no-files-found: ignore
 
   # Создание релиза
@@ -317,20 +298,20 @@ jobs:
           DIRECT_LINKS=""
           
           if [ "${{ inputs.build_windows }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **Windows (x64)**: [\`Logs Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs\ Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🪟 [**Download Logs Tokenizer.exe**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
+            PLATFORMS="${PLATFORMS}- ✅ **Windows (x64)**: [\`Logs.Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs.Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🪟 [**Download Logs.Tokenizer.exe**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
           fi
           if [ "${{ inputs.build_linux }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **Linux (x64)**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🐧 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
+            PLATFORMS="${PLATFORMS}- ✅ **Linux (x64)**: [\`Logs.Tokenizer.linux-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🐧 [**Download Logs.Tokenizer.linux-x64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
           fi
           if [ "${{ inputs.build_macos_intel }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **macOS Intel**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
+            PLATFORMS="${PLATFORMS}- ✅ **macOS Intel**: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs.Tokenizer.macos-x64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
           fi
           if [ "${{ inputs.build_macos_arm }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- ✅ **macOS Apple Silicon**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
+            PLATFORMS="${PLATFORMS}- ✅ **macOS Apple Silicon**: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs.Tokenizer.macos-arm64**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
           fi
           
           echo "platforms<<EOF" >> $GITHUB_OUTPUT
@@ -357,7 +338,7 @@ jobs:
             
             ### 📥 Installation
             1. Click the download link above for your platform
-            2. Run `Logs Tokenizer.exe` (Windows) or `Logs Tokenizer` (macOS/Linux)
+            2. Run `Logs.Tokenizer.exe` (Windows) or `Logs.Tokenizer.*` (macOS/Linux)
             3. No extraction needed - it's a standalone executable!
             
             ### 💡 Usage
