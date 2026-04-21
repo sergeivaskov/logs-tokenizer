@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"] // Раскомментировано, чтобы скрыть консоль для финальной версии
+#![windows_subsystem = "windows"] // Uncommented to hide console for the final release
 
 mod platforms;
 

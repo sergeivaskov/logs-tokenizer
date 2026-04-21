@@ -5,7 +5,7 @@ pub fn setup_env(icon_path: &str) -> String {
     use winreg::enums::*;
     use winreg::RegKey;
 
-    // Используем уникальный ID, чтобы сбросить жесткий кеш уведомлений Windows
+    // Use a unique ID to reset Windows notifications hard cache
     let aumid = "LogsTokenizer.App.v3";
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let path = format!(r"Software\Classes\AppUserModelId\{}", aumid);
@@ -19,20 +19,20 @@ pub fn setup_env(icon_path: &str) -> String {
 
 pub fn show_startup_notification(app_id: &str) {
     if let Err(e) = Toast::new(app_id)
-        .text1("Утилита успешно запущена в фоне!")
-        .text2("Нажмите Ctrl+Alt+V для вставки сжатых логов.")
+        .text1("Utility successfully launched in background!")
+        .text2("Press Ctrl+Alt+V to paste compressed logs.")
         .show() {
-        error!("[Notify] Ошибка показа уведомления при старте: {:?}", e);
+        error!("[Notify] Failed to show startup notification: {:?}", e);
     }
 }
 
 pub fn show_success_notification(app_id: &str, savings: f64, original_len: usize, compressed_len: usize) {
     if let Err(e) = Toast::new(app_id)
-        .title("Логи оптимизированы!")
-        .text1(&format!("Сжато на {:.1}%", savings))
-        .text2(&format!("(с {} до {} символов)", original_len, compressed_len))
+        .title("Logs optimized!")
+        .text1(&format!("Compressed by {:.1}%", savings))
+        .text2(&format!("(from {} to {} characters)", original_len, compressed_len))
         .show() {
-        error!("[Notify] Ошибка показа уведомления об успехе: {:?}", e);
+        error!("[Notify] Failed to show success notification: {:?}", e);
     }
 }
 

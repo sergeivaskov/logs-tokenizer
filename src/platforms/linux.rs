@@ -3,15 +3,15 @@ pub fn setup_env(_icon_path: &str) -> String {
 }
 
 pub fn show_startup_notification(_app_id: &str) {
-    // TODO: Использовать notify-rust в будущем
-    info!("[Notify] Утилита успешно запущена в фоне!");
+    // TODO: Use notify-rust in the future
+    info!("[Notify] Utility successfully launched in background!");
 }
 
 pub fn show_success_notification(_app_id: &str, savings: f64, original_len: usize, compressed_len: usize) {
-    // TODO: Использовать notify-rust в будущем
-    info!("[Notify] Логи оптимизированы! Сжато на {:.1}% (с {} до {} символов)", savings, original_len, compressed_len);
+    // TODO: Use notify-rust in the future
+    info!("[Notify] Logs optimized! Compressed by {:.1}% (from {} to {} characters)", savings, original_len, compressed_len);
 }
 
 pub fn simulate_paste() {
-    // TODO: Использовать enigo в будущем
+    // TODO: Use enigo in the future
 }
