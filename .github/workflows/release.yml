@@ -147,11 +147,6 @@ jobs:
     name: Build - ${{ matrix.platform.name }}
     needs: version
     runs-on: ${{ matrix.platform.os }}
-    if: |
-      (matrix.platform.name == 'windows-x64' && inputs.build_windows) ||
-      (matrix.platform.name == 'linux-x64' && inputs.build_linux) ||
-      (matrix.platform.name == 'macos-x64' && inputs.build_macos_intel) ||
-      (matrix.platform.name == 'macos-arm64' && inputs.build_macos_arm)
     
     strategy:
       fail-fast: false
@@ -182,53 +177,57 @@ jobs:
             enabled: ${{ inputs.build_macos_arm }}
 
     steps:
+      - name: Check if platform is disabled
+        if: ${{ !matrix.platform.enabled }}
+        run: |
+          echo "Platform ${{ matrix.platform.name }} is disabled. Skipping build."
+        shell: bash
+
       - name: Checkout code
+        if: ${{ matrix.platform.enabled }}
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.tag }}
 
-      - name: Check if platform is disabled
-        run: |
-          if [ "${{ matrix.platform.name }}" = "linux-x64" ] || \
-             [ "${{ matrix.platform.name }}" = "macos-x64" ] || \
-             [ "${{ matrix.platform.name }}" = "macos-arm64" ]; then
-            echo "Warning: ${{ matrix.platform.name }} is currently disabled"
-          fi
-        shell: bash
-
       - name: Install Rust toolchain
+        if: ${{ matrix.platform.enabled }}
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.platform.target }}
 
       - name: Cache cargo registry
+        if: ${{ matrix.platform.enabled }}
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache cargo index
+        if: ${{ matrix.platform.enabled }}
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Cache target directory
+        if: ${{ matrix.platform.enabled }}
         uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-target-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install Linux dependencies
-        if: matrix.platform.os == 'ubuntu-latest'
+        if: ${{ matrix.platform.enabled && matrix.platform.os == 'ubuntu-latest' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
 
       - name: Build release binary
+        if: ${{ matrix.platform.enabled }}
         run: cargo build --release --target ${{ matrix.platform.target }}
 
       - name: Prepare release binary
+        if: ${{ matrix.platform.enabled }}
         shell: bash
         run: |
           if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
@@ -239,6 +238,7 @@ jobs:
           fi
 
       - name: Upload artifact
+        if: ${{ matrix.platform.enabled }}
         uses: actions/upload-artifact@v4
         with:
           name: logstokenizer-${{ matrix.platform.name }}
