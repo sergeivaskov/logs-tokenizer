@@ -1,20 +1,22 @@
 # Logs Tokenizer 🗜️
 
-**Logs Tokenizer** — это умная фоновая утилита для вайбкодеров, разработчиков и DevOps-инженеров, которая экстремально сжимает логи прямо в буфере обмена, оставляя их в читаемом текстовом формате.
+[📥 Download for Windows](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.exe)
 
-## ⚠️ Проблема
+**Logs Tokenizer** is a smart background utility for developers, coders, and DevOps engineers that extremely compresses logs directly in the clipboard, keeping them in a readable text format.
 
-Вам нужно сэкономить токены при взаимодействии с нейросетями, в особенности с Claude Code, но вы не хотите жертвовать объемом. Логи содержат большое количество дюблирующейся информации, которая может быть вынесена за скобки.
+## ⚠️ Problem
 
-## 💡 Решение
+You need to save tokens when interacting with AI, especially with Claude Code, but you don't want to sacrifice volume. Logs contain a large amount of duplicated information that can be factored out.
 
-Вы просто копируете логи, нажимаете `Ctrl+Alt+V`, и утилита мгновенно сжимает текст до 80% в буфере обмена, заменяя повторяющиеся паттерны на короткие токены и автоматически вставляет результат, который остается абсолютно понятен для нейросетей. Вдобавок к этому такая структа позволяет максимально подсветить проблему для агента без лишнего шума и переполнения контекстного окна.
+## 💡 Solution
+
+You simply copy logs, press `Ctrl+Alt+V`, and the utility instantly compresses the text up to 80% in the clipboard, replacing repeating patterns with short tokens and automatically pastes the result, which remains completely understandable for neural networks. Additionally, this structure allows you to highlight the problem for the agent without unnecessary noise and context window overflow.
 
 ---
 
-## 🔍 Условный пример
+## 🔍 Example
 
-### Вид строк логов до сжатия (Огинал)
+### Log lines before compression (Original)
 
 ```text
 2026-04-20T19:58:52.970 [StageDiag] > handleTokenTracking vk=70 keyDown=0
@@ -33,7 +35,7 @@
 2026-04-20T19:58:53.019 [StageDiag] > hotkeyManager.processKeyEvent vk=32 keyDown=1
 ```
 
-### Строки логов после сжатия (Logs Tokenizer)
+### Log lines after compression (Logs Tokenizer)
 
 ```text
 !16!!t!83!2!
@@ -53,34 +55,34 @@
 !4!209 !v!
 ```
 
-*В начале сжатого варианта дополнительно добавляется компактная Легенда (словарь), а сам текст логов радикально сокращается.*
+*At the beginning of the compressed version, a compact Legend (dictionary) is added, and the log text itself is radically shortened.*
 
 ---
 
-## ✨ Главные фичи
+## ✨ Key Features
 
-- **Семантическое сжатие логов:** Алгоритм понимает структуру логов. Он автоматически находит таймстемпы, компоненты `[App]`, ключи `id=` и отрезает ведущие нули в hex-адресах.
-- **Макро-шаблонизация:** Уникальная фича, которая находит машингенерируемые паттерны (например, `User {ID} logged in`) и сворачивает их в короткие макросы с параметрами.
-- **Внутристрочная дедупликация:** Одинаковые спам-строки схлопываются в компактный вид `... xN`.
-- **Бесшовный UX:** Программа висит в системном трее. Вы просто нажимаете глобальный хоткей, и она сама читает буфер, сжимает текст, показывает системное уведомление с процентом сжатия и эмулирует нажатие `Ctrl+V` (Paste).
-- **Молниеносная скорость:** Написано на Rust. Ядро работает на уровне массивов токенов (без аллокаций строк в горячих циклах), сжимая мегабайты текста за доли секунды.
+- **Semantic log compression:** The algorithm understands log structure. It automatically finds timestamps, `[App]` components, `id=` keys, and trims leading zeros in hex addresses.
+- **Macro templating:** A unique feature that finds machine-generated patterns (e.g., `User {ID} logged in`) and collapses them into short macros with parameters.
+- **Inline deduplication:** Identical spam lines are collapsed into a compact `... xN` format.
+- **Seamless UX:** The program sits in the system tray. You simply press a global hotkey, and it reads the buffer, compresses the text, shows a system notification with the compression percentage, and simulates pressing `Ctrl+V` (Paste).
+- **Lightning speed:** Written in Rust. The core works at the token array level (without string allocations in hot loops), compressing megabytes of text in fractions of a second.
 
-## 🚀 Как использовать
+## 🚀 How to Use
 
-1. Запустите `Logs Tokenizer.exe` (появится иконка в трее).
-2. Выделите и скопируйте (`Ctrl+C`) любой большой кусок логов.
-3. Перейдите в мессенджер или ChatGPT.
-4. Нажмите `Ctrl + Alt + V` (можно установить альтернативный хоткей)
-5. Сжатый текст автоматически вставится в поле ввода.
+1. Launch `Logs Tokenizer.exe` (an icon will appear in the tray).
+2. Select and copy (`Ctrl+C`) any large chunk of logs.
+3. Go to a messenger or ChatGPT.
+4. Press `Ctrl + Alt + V` (you can set an alternative hotkey)
+5. The compressed text will automatically be pasted into the input field.
 
-## 🛠️ Сборка из исходников
+## 🛠️ Building from Source
 
-Убедитесь, что у вас установлен Rust (cargo).
+Make sure you have Rust (cargo) installed.
 
 ```bash
-git clone https://github.com/yourusername/logstokenizer.git
+git clone https://github.com/sergeivaskov/logs-tokenizer.git
 cd logstokenizer
 cargo build --release
 ```
 
-Исполняемый файл будет находиться в `target/release/logstokenizer.exe`.
+The executable file will be located at `target/release/logstokenizer.exe`.

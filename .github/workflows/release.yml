@@ -1,0 +1,376 @@
+name: Release Build
+
+on:
+  workflow_dispatch:  # Только ручной запуск
+    inputs:
+      # Выбор платформ для сборки
+      build_windows:
+        description: 'Build for Windows'
+        required: true
+        type: boolean
+        default: true
+      
+      build_linux:
+        description: 'Build for Linux (disabled)'
+        required: true
+        type: boolean
+        default: false
+      
+      build_macos_intel:
+        description: 'Build for macOS Intel (disabled)'
+        required: true
+        type: boolean
+        default: false
+      
+      build_macos_arm:
+        description: 'Build for macOS ARM (disabled)'
+        required: true
+        type: boolean
+        default: false
+      
+      # Управление версией
+      version_increment:
+        description: 'Auto increment version'
+        required: true
+        type: choice
+        options:
+          - 'none'
+          - 'patch'
+          - 'minor'
+          - 'major'
+        default: 'patch'
+      
+      manual_version:
+        description: 'Manual version (e.g., 1.2.3) - overrides auto increment'
+        required: false
+        type: string
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Проверка доступа - только владелец репозитория
+  check_permission:
+    name: Check Permission
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if user is repository owner
+        run: |
+          if [ "${{ github.actor }}" != "${{ github.repository_owner }}" ]; then
+            echo "❌ Access denied: Only repository owner can run this workflow"
+            echo "Actor: ${{ github.actor }}"
+            echo "Owner: ${{ github.repository_owner }}"
+            exit 1
+          fi
+          echo "✅ Access granted for repository owner"
+
+  # Управление версией
+  version:
+    name: Update Version
+    needs: check_permission
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get current version from Cargo.toml
+        id: current_version
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | head -n 1 | sed 's/version = "\(.*\)"/\1/')
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Calculate new version
+        id: version
+        run: |
+          # Если указана ручная версия, используем её
+          if [ -n "${{ inputs.manual_version }}" ]; then
+            NEW_VERSION="${{ inputs.manual_version }}"
+            echo "Using manual version: $NEW_VERSION"
+          else
+            CURRENT="${{ steps.current_version.outputs.current }}"
+            
+            # Если текущей версии нет или version_increment = none, используем 1.0.0
+            if [ -z "$CURRENT" ] || [ "${{ inputs.version_increment }}" = "none" ]; then
+              if [ -z "$CURRENT" ]; then
+                NEW_VERSION="1.0.0"
+                echo "No current version, using default: $NEW_VERSION"
+              else
+                NEW_VERSION="$CURRENT"
+                echo "No increment, keeping current: $NEW_VERSION"
+              fi
+            else
+              # Парсим версию
+              IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+              
+              # Увеличиваем версию согласно выбору
+              case "${{ inputs.version_increment }}" in
+                major)
+                  MAJOR=$((MAJOR + 1))
+                  MINOR=0
+                  PATCH=0
+                  ;;
+                minor)
+                  MINOR=$((MINOR + 1))
+                  PATCH=0
+                  ;;
+                patch)
+                  PATCH=$((PATCH + 1))
+                  ;;
+              esac
+              
+              NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+              echo "Auto-incremented version (${{ inputs.version_increment }}): $NEW_VERSION"
+            fi
+          fi
+          
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "Final version: $NEW_VERSION"
+
+      - name: Update Cargo.toml
+        run: |
+          sed -i.bak "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
+          rm Cargo.toml.bak || true
+          cat Cargo.toml | grep "^version"
+
+      - name: Commit and push version update
+        run: |
+          git add Cargo.toml
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+            git push origin HEAD:${{ github.ref_name }}
+          fi
+
+      - name: Create and push tag
+        run: |
+          git tag ${{ steps.version.outputs.tag }}
+          git push origin ${{ steps.version.outputs.tag }}
+
+  # Сборка для выбранных платформ
+  build:
+    name: Build - ${{ matrix.platform.name }}
+    needs: version
+    runs-on: ${{ matrix.platform.os }}
+    if: |
+      (matrix.platform.name == 'windows-x64' && inputs.build_windows) ||
+      (matrix.platform.name == 'linux-x64' && inputs.build_linux) ||
+      (matrix.platform.name == 'macos-x64' && inputs.build_macos_intel) ||
+      (matrix.platform.name == 'macos-arm64' && inputs.build_macos_arm)
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-x64
+            ext: .exe
+            enabled: ${{ inputs.build_windows }}
+            
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-x64
+            ext: ''
+            enabled: ${{ inputs.build_linux }}
+            
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-x64
+            ext: ''
+            enabled: ${{ inputs.build_macos_intel }}
+            
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+            ext: ''
+            enabled: ${{ inputs.build_macos_arm }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Check if platform is disabled
+        run: |
+          if [ "${{ matrix.platform.name }}" = "linux-x64" ] || \
+             [ "${{ matrix.platform.name }}" = "macos-x64" ] || \
+             [ "${{ matrix.platform.name }}" = "macos-arm64" ]; then
+            echo "⚠️ Warning: ${{ matrix.platform.name }} is currently disabled"
+          fi
+        shell: bash
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache target directory
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-target-${{ matrix.platform.target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Prepare release binary (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        shell: bash
+        run: |
+          cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs Tokenizer.exe"
+
+      - name: Prepare release binary (Unix)
+        if: matrix.platform.os != 'windows-latest'
+        run: |
+          cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs Tokenizer"
+          chmod +x "Logs Tokenizer"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: logstokenizer-${{ matrix.platform.name }}
+          path: |
+            Logs Tokenizer.exe
+            Logs Tokenizer
+          if-no-files-found: ignore
+
+  # Создание релиза
+  release:
+    name: Create GitHub Release
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate changelog
+        id: changelog
+        shell: bash
+        run: |
+          # Попытка получить предыдущий тег
+          PREV_TAG=$(git describe --tags --abbrev=0 ${{ needs.version.outputs.tag }}^ 2>/dev/null || echo "")
+          
+          if [ -z "$PREV_TAG" ]; then
+            CHANGELOG="Initial release"
+          else
+            CHANGELOG=$(git log $PREV_TAG..${{ needs.version.outputs.tag }} --pretty=format:"- %s" --no-merges)
+          fi
+          
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Generate platform list
+        id: platforms
+        run: |
+          PLATFORMS=""
+          DIRECT_LINKS=""
+          
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            PLATFORMS="${PLATFORMS}- ✅ **Windows (x64)**: [\`Logs Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs\ Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🪟 [**Download Logs Tokenizer.exe**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
+          fi
+          if [ "${{ inputs.build_linux }}" = "true" ]; then
+            PLATFORMS="${PLATFORMS}- ✅ **Linux (x64)**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🐧 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
+          fi
+          if [ "${{ inputs.build_macos_intel }}" = "true" ]; then
+            PLATFORMS="${PLATFORMS}- ✅ **macOS Intel**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
+          fi
+          if [ "${{ inputs.build_macos_arm }}" = "true" ]; then
+            PLATFORMS="${PLATFORMS}- ✅ **macOS Apple Silicon**: [\`Logs Tokenizer\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- 🍎 [**Download Logs Tokenizer**](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
+          fi
+          
+          echo "platforms<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$PLATFORMS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "direct_links<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$DIRECT_LINKS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: Release ${{ needs.version.outputs.version }}
+          body: |
+            ## 📦 Release ${{ needs.version.outputs.version }}
+            
+            ### 📝 Changelog
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ### ⬇️ Direct Downloads
+            ${{ steps.platforms.outputs.direct_links }}
+            
+            ### 📥 Installation
+            1. Click the download link above for your platform
+            2. Run `Logs Tokenizer.exe` (Windows) or `Logs Tokenizer` (macOS/Linux)
+            3. No extraction needed - it's a standalone executable!
+            
+            ### 💡 Usage
+            1. Launch the application (icon appears in system tray)
+            2. Copy any logs with `Ctrl+C`
+            3. Press `Ctrl+Alt+V` to compress and paste automatically
+            
+            ### ℹ️ Version Info
+            - **Version**: ${{ needs.version.outputs.version }}
+            - **Build Date**: ${{ github.event.head_commit.timestamp }}
+            - **Commit**: ${{ github.sha }}
+          files: artifacts/**/*
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
