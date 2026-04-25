@@ -1,6 +1,7 @@
 # Logs Tokenizer 🗜️
 
 [📥 Download for Windows](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.exe)
+*macOS and Linux support is available by building from source.*
 
 **Logs Tokenizer** is a smart background utility for developers, coders, and DevOps engineers that extremely compresses logs directly in the clipboard, keeping them in a readable text format.
 
@@ -72,7 +73,7 @@ You simply copy logs, press `Ctrl+Alt+V`, and the utility instantly compresses t
 1. Launch `Logs Tokenizer.exe` (an icon will appear in the tray).
 2. Select and copy (`Ctrl+C`) any large chunk of logs.
 3. Go to a messenger or ChatGPT.
-4. Press `Ctrl + Alt + V` (you can set an alternative hotkey)
+4. Press `Ctrl + Alt + V` (or `Cmd + Alt + V` on macOS)
 5. The compressed text will automatically be pasted into the input field.
 
 ## 🛠️ Building from Source
@@ -85,4 +86,4 @@ cd logstokenizer
 cargo build --release
 ```
 
-The executable file will be located at `target/release/logstokenizer.exe`.
+The executable file will be located at `target/release/logstokenizer.exe` (on Windows) or `target/release/logstokenizer` (on macOS/Linux).

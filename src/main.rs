@@ -3,30 +3,30 @@
 mod platforms;
 
 use logstokenizer::core::Compressor;
-
 use arboard::Clipboard;
 use global_hotkey::{
-    hotkey::{Code, HotKey},
-    GlobalHotKeyEvent, GlobalHotKeyManager,
+    hotkey::{Code, HotKey, Modifiers},
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
 };
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem, Submenu, CheckMenuItem},
+    menu::{Menu, MenuEvent, MenuItem, Submenu, CheckMenuItem, MenuId},
     Icon, TrayIconBuilder,
 };
-use simplelog::{Config, LevelFilter, WriteLogger};
+use simplelog::{Config, LevelFilter, WriteLogger, TermLogger, CombinedLogger, TerminalMode, ColorChoice};
 use anyhow::{Context, Result};
 use std::fs::File;
 use tempfile::NamedTempFile;
 use std::io::Write;
 use std::time::Duration;
 use std::thread::sleep;
+use std::sync::atomic::{AtomicBool, Ordering};
+use usvg::TreeParsing;
 
 const SVG_ICON: &str = include_str!("ico/ico.svg");
-
 const ICON_SIZE: u32 = 32;
-const CLIPBOARD_SYNC_DELAY: Duration = Duration::from_millis(50);
-const CLIPBOARD_RESTORE_DELAY: Duration = Duration::from_millis(150);
+const CLIPBOARD_SYNC_DELAY: Duration = Duration::from_millis(150);
+const CLIPBOARD_RESTORE_DELAY: Duration = Duration::from_millis(300);
 
 #[derive(Debug)]
 enum UserEvent {
@@ -43,38 +43,65 @@ enum HotkeyOption {
 }
 
 impl HotkeyOption {
-    fn modifiers(&self) -> global_hotkey::hotkey::Modifiers {
+    fn modifiers(self) -> Modifiers {
+        let alt = Modifiers::ALT;
+        let shift = Modifiers::SHIFT;
+        
         #[cfg(target_os = "macos")]
-        let ctrl = global_hotkey::hotkey::Modifiers::META;
+        let ctrl = Modifiers::META;
         #[cfg(not(target_os = "macos"))]
-        let ctrl = global_hotkey::hotkey::Modifiers::CONTROL;
-
-        let alt = global_hotkey::hotkey::Modifiers::ALT;
-        let shift = global_hotkey::hotkey::Modifiers::SHIFT;
+        let ctrl = Modifiers::CONTROL;
 
         match self {
-            HotkeyOption::ShiftCtrlAltV => shift | ctrl | alt,
-            HotkeyOption::ShiftAltV => shift | alt,
-            HotkeyOption::CtrlAltV => ctrl | alt,
-            HotkeyOption::AltV => alt,
+            Self::ShiftCtrlAltV => shift | ctrl | alt,
+            Self::ShiftAltV => shift | alt,
+            Self::CtrlAltV => ctrl | alt,
+            Self::AltV => alt,
         }
     }
 }
+
+struct HotkeyConfig {
+    label: &'static str,
+    default: bool,
+    option: HotkeyOption,
+}
+
+const HOTKEYS: &[HotkeyConfig] = &[
+    HotkeyConfig {
+        #[cfg(target_os = "macos")] label: "Shift+Cmd+Alt+V",
+        #[cfg(not(target_os = "macos"))] label: "Shift+Ctrl+Alt+V",
+        default: false,
+        option: HotkeyOption::ShiftCtrlAltV,
+    },
+    HotkeyConfig {
+        label: "Shift+Alt+V",
+        default: false,
+        option: HotkeyOption::ShiftAltV,
+    },
+    HotkeyConfig {
+        #[cfg(target_os = "macos")] label: "Cmd+Alt+V",
+        #[cfg(not(target_os = "macos"))] label: "Ctrl+Alt+V",
+        default: true,
+        option: HotkeyOption::CtrlAltV,
+    },
+    HotkeyConfig {
+        label: "Alt+V",
+        default: false,
+        option: HotkeyOption::AltV,
+    },
+];
 
 fn init_logging() -> Result<()> {
     let mut log_path = std::env::temp_dir();
     log_path.push("logstokenizer.log");
     
-    WriteLogger::init(
-        LevelFilter::Info,
-        Config::default(),
-        File::create(log_path).context("Failed to create log file")?,
-    )?;
-    
+    CombinedLogger::init(vec![
+        TermLogger::new(LevelFilter::Info, Config::default(), TerminalMode::Mixed, ColorChoice::Auto),
+        WriteLogger::new(LevelFilter::Info, Config::default(), File::create(log_path).context("Create log file")?),
+    ])?;
     Ok(())
 }
-
-use usvg::TreeParsing;
 
 fn load_icon() -> Result<(Icon, NamedTempFile)> {
     let mode = dark_light::detect();
@@ -130,79 +157,144 @@ fn main() -> Result<()> {
     let (tray_icon_data, _icon_temp_file) = load_icon()?;
     let app_id = platforms::setup_env(&_icon_temp_file.path().to_string_lossy());
 
-    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    #[cfg(target_os = "macos")]
+    {
+        use tao::platform::macos::{EventLoopExtMacOS, ActivationPolicy};
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+    }
+    
     let proxy = event_loop.create_proxy();
-
     MenuEvent::set_event_handler(Some(move |e| { let _ = proxy.send_event(UserEvent::Menu(e)); }));
+    
     let proxy = event_loop.create_proxy();
     GlobalHotKeyEvent::set_event_handler(Some(move |e| { let _ = proxy.send_event(UserEvent::Hotkey(e)); }));
 
     let tray_menu = Menu::new();
-    
-    let hk_1 = CheckMenuItem::new("Shift+Ctrl+Alt+V", true, false, None);
-    let hk_2 = CheckMenuItem::new("Shift+Alt+V", true, false, None);
-    let hk_3 = CheckMenuItem::new("Ctrl+Alt+V", true, true, None);
-    let hk_4 = CheckMenuItem::new("Alt+V", true, false, None);
-
     let hotkey_submenu = Submenu::new("Hotkey", true);
-    hotkey_submenu.append(&hk_1)?;
-    hotkey_submenu.append(&hk_2)?;
-    hotkey_submenu.append(&hk_3)?;
-    hotkey_submenu.append(&hk_4)?;
+    
+    let hotkeys_map: Vec<_> = HOTKEYS.iter().map(|cfg| {
+        let item = CheckMenuItem::new(cfg.label, true, cfg.default, None);
+        hotkey_submenu.append(&item).unwrap();
+        (item.id().clone(), item, cfg.option)
+    }).collect();
 
     let quit_i = MenuItem::new("Quit Logs Tokenizer", true, None);
     
     tray_menu.append(&hotkey_submenu)?;
     tray_menu.append(&quit_i)?;
 
-    let hotkeys_map = vec![
-        (hk_1.id().clone(), hk_1.clone(), HotkeyOption::ShiftCtrlAltV),
-        (hk_2.id().clone(), hk_2.clone(), HotkeyOption::ShiftAltV),
-        (hk_3.id().clone(), hk_3.clone(), HotkeyOption::CtrlAltV),
-        (hk_4.id().clone(), hk_4.clone(), HotkeyOption::AltV),
-    ];
-
-    let _tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(tray_menu))
-        .with_tooltip("Logs Tokenizer")
-        .with_icon(tray_icon_data)
-        .build()?;
-
-    platforms::show_startup_notification(&app_id);
-
-    let manager = GlobalHotKeyManager::new()?;
-    let mut current_hotkey = HotKey::new(Some(HotkeyOption::CtrlAltV.modifiers()), Code::KeyV);
-    if manager.register(current_hotkey).is_err() {
-        anyhow::bail!("Hotkey registration failed. Is another instance running?");
-    }
-
     let mut clipboard = Clipboard::new()?;
-    
+    let mut manager = GlobalHotKeyManager::new().ok();
+    let mut current_hotkey = HotKey::new(Some(HotkeyOption::CtrlAltV.modifiers()), Code::KeyV);
+    let mut tray_icon = None;
+
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
+        
         match event {
-            tao::event::Event::UserEvent(UserEvent::Menu(m)) => {
-                if m.id == quit_i.id() {
-                    *control_flow = ControlFlow::Exit;
-                } else {
-                    for (id, item, opt) in &hotkeys_map {
-                        if m.id == *id {
-                            let _ = manager.unregister(current_hotkey);
-                            current_hotkey = HotKey::new(Some(opt.modifiers()), Code::KeyV);
-                            let _ = manager.register(current_hotkey);
-                            
-                            for (_, other_item, _) in &hotkeys_map {
-                                other_item.set_checked(other_item.id() == item.id());
-                            }
-                            break;
-                        }
-                    }
-                }
+            tao::event::Event::NewEvents(tao::event::StartCause::Init) => {
+                tray_icon = Some(init_tray(&tray_menu, &tray_icon_data));
+                register_initial_hotkey(&manager, current_hotkey);
+                platforms::show_startup_notification(&app_id);
             }
-            tao::event::Event::UserEvent(UserEvent::Hotkey(h)) if h.id == current_hotkey.id() && h.state == global_hotkey::HotKeyState::Released => {
-                let _ = handle_hotkey_press(&mut clipboard, &app_id);
+            tao::event::Event::UserEvent(UserEvent::Menu(m)) => {
+                handle_menu_event(&m, control_flow, &manager, &mut current_hotkey, &hotkeys_map, quit_i.id());
+            }
+            tao::event::Event::UserEvent(UserEvent::Hotkey(h)) => {
+                handle_hotkey_event(&h, &current_hotkey, &mut clipboard, &app_id);
             }
             _ => {}
         }
+    });
+}
+
+fn init_tray(menu: &Menu, icon: &Icon) -> tray_icon::TrayIcon {
+    log::info!("[Init] Initializing tray icon and hotkeys");
+    let icon = TrayIconBuilder::new()
+        .with_menu(Box::new(menu.clone()))
+        .with_tooltip("Logs Tokenizer")
+        .with_icon(icon.clone())
+        .with_icon_as_template(true)
+        .build()
+        .unwrap();
+
+    #[cfg(target_os = "macos")]
+    unsafe {
+        use core_foundation::runloop::{CFRunLoopGetMain, CFRunLoopWakeUp};
+        CFRunLoopWakeUp(CFRunLoopGetMain());
+    }
+    icon
+}
+
+fn register_initial_hotkey(manager: &Option<GlobalHotKeyManager>, hk: HotKey) {
+    let Some(m) = manager else { return };
+    if m.register(hk).is_err() {
+        log::error!("Hotkey registration failed. Is another instance running?");
+    } else {
+        log::info!("[Hotkey] Successfully registered default hotkey");
+    }
+}
+
+fn handle_menu_event(
+    m: &MenuEvent,
+    control_flow: &mut ControlFlow,
+    manager: &Option<GlobalHotKeyManager>,
+    current_hotkey: &mut HotKey,
+    hotkeys_map: &[(MenuId, CheckMenuItem, HotkeyOption)],
+    quit_id: &MenuId,
+) {
+    log::info!("[Menu] Item clicked: {:?}", m.id);
+    
+    if m.id == *quit_id {
+        *control_flow = ControlFlow::Exit;
+        return;
+    }
+
+    let Some((_, selected_item, opt)) = hotkeys_map.iter().find(|(id, _, _)| m.id == *id) else { return };
+
+    if let Some(mng) = manager {
+        let _ = mng.unregister(*current_hotkey);
+        *current_hotkey = HotKey::new(Some(opt.modifiers()), Code::KeyV);
+        if let Err(e) = mng.register(*current_hotkey) {
+            log::error!("[Hotkey] Failed to register new hotkey: {:?}", e);
+        } else {
+            log::info!("[Hotkey] Successfully changed hotkey");
+        }
+    }
+
+    for (_, item, _) in hotkeys_map {
+        item.set_checked(item.id() == selected_item.id());
+    }
+}
+
+fn handle_hotkey_event(
+    h: &GlobalHotKeyEvent,
+    current_hotkey: &HotKey,
+    clipboard: &mut Clipboard,
+    app_id: &str,
+) {
+    log::info!("[Hotkey] Event received: {:?}", h);
+    
+    if h.id != current_hotkey.id() || h.state != HotKeyState::Released {
+        return;
+    }
+
+    static IS_SIMULATING: AtomicBool = AtomicBool::new(false);
+    
+    if IS_SIMULATING.swap(true, Ordering::SeqCst) {
+        log::info!("[Hotkey] Ignored event during simulation");
+        return;
+    }
+
+    log::info!("[Hotkey] Triggering paste action");
+    
+    if let Err(e) = handle_hotkey_press(clipboard, app_id) {
+        log::error!("[Action] Failed to handle hotkey press: {:?}", e);
+    }
+    
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        IS_SIMULATING.store(false, Ordering::SeqCst);
     });
 }

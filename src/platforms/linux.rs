@@ -1,3 +1,5 @@
+use log::info;
+
 pub fn setup_env(_icon_path: &str) -> String {
     "LogsTokenizer".to_string()
 }

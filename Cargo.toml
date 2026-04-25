@@ -19,10 +19,7 @@ dark-light = "1.0"
 resvg = "0.38"
 usvg = "0.38"
 tiny-skia = "0.11"
-winreg = "0.56.0"
 image = "0.25.10"
-tauri-winrt-notification = "0.7.2"
-ico = "0.5.0"
 log = "0.4.29"
 simplelog = "0.12.2"
 anyhow = "1.0.102"
@@ -30,6 +27,15 @@ tempfile = "3.27.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse"] }
+winreg = "0.56.0"
+tauri-winrt-notification = "0.7.2"
+ico = "0.5.0"
 
-[build-dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
+enigo = "0.1"
+notify-rust = "4.11"
+mac-notification-sys = "0.6"
+core-foundation = "0.9"
+
+[target.'cfg(windows)'.build-dependencies]
 winresource = "0.1.31"
