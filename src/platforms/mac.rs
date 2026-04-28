@@ -39,7 +39,15 @@ pub fn simulate_paste() {
     let mut enigo = Enigo::new();
     
     // macOS 'v' keycode is 9
-    // Add small delays to ensure the OS registers the modifiers before the key press
+    // In macOS, when global hotkeys are pressed, the physical modifier keys (like Cmd/Alt) 
+    // are still held down by the user. We need to release them first to ensure our clean Cmd+V works.
+    enigo.key_up(Key::Alt);
+    enigo.key_up(Key::Option);
+    enigo.key_up(Key::Control);
+    enigo.key_up(Key::Shift);
+    
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    
     enigo.key_down(Key::Meta);
     std::thread::sleep(std::time::Duration::from_millis(20));
     enigo.key_click(Key::Raw(9));

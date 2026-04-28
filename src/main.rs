@@ -40,6 +40,14 @@ enum HotkeyOption {
     ShiftAltV,
     CtrlAltV,
     AltV,
+    #[cfg(target_os = "macos")]
+    MacCtrlAltV,
+    #[cfg(target_os = "macos")]
+    MacShiftCtrlAltV,
+    #[cfg(target_os = "macos")]
+    MacCtrlV,
+    #[cfg(target_os = "macos")]
+    MacShiftCtrlV,
 }
 
 impl HotkeyOption {
@@ -57,6 +65,14 @@ impl HotkeyOption {
             Self::ShiftAltV => shift | alt,
             Self::CtrlAltV => ctrl | alt,
             Self::AltV => alt,
+            #[cfg(target_os = "macos")]
+            Self::MacCtrlAltV => Modifiers::CONTROL | alt,
+            #[cfg(target_os = "macos")]
+            Self::MacShiftCtrlAltV => shift | Modifiers::CONTROL | alt,
+            #[cfg(target_os = "macos")]
+            Self::MacCtrlV => Modifiers::CONTROL,
+            #[cfg(target_os = "macos")]
+            Self::MacShiftCtrlV => shift | Modifiers::CONTROL,
         }
     }
 }
@@ -74,16 +90,40 @@ const HOTKEYS: &[HotkeyConfig] = &[
         default: false,
         option: HotkeyOption::ShiftCtrlAltV,
     },
+    #[cfg(target_os = "macos")]
+    HotkeyConfig {
+        label: "Shift+Ctrl+Alt+V",
+        default: false,
+        option: HotkeyOption::MacShiftCtrlAltV,
+    },
     HotkeyConfig {
         label: "Shift+Alt+V",
         default: false,
         option: HotkeyOption::ShiftAltV,
+    },
+    #[cfg(target_os = "macos")]
+    HotkeyConfig {
+        label: "Shift+Ctrl+V",
+        default: false,
+        option: HotkeyOption::MacShiftCtrlV,
     },
     HotkeyConfig {
         #[cfg(target_os = "macos")] label: "Cmd+Alt+V",
         #[cfg(not(target_os = "macos"))] label: "Ctrl+Alt+V",
         default: true,
         option: HotkeyOption::CtrlAltV,
+    },
+    #[cfg(target_os = "macos")]
+    HotkeyConfig {
+        label: "Ctrl+Alt+V",
+        default: false,
+        option: HotkeyOption::MacCtrlAltV,
+    },
+    #[cfg(target_os = "macos")]
+    HotkeyConfig {
+        label: "Ctrl+V",
+        default: false,
+        option: HotkeyOption::MacCtrlV,
     },
     HotkeyConfig {
         label: "Alt+V",
