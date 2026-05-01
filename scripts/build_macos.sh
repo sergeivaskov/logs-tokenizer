@@ -62,4 +62,7 @@ rm /tmp/base_icon.png
 echo "Copying Info.plist..."
 cp Info.plist "$CONTENTS_DIR/Info.plist"
 
+echo "Signing App Bundle..."
+codesign --force --deep --sign - "$APP_DIR"
+
 echo "Done! App Bundle created at $APP_DIR"
