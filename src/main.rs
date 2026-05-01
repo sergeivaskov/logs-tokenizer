@@ -144,8 +144,15 @@ fn init_logging() -> Result<()> {
 }
 
 fn load_icon() -> Result<(Icon, NamedTempFile)> {
-    let mode = dark_light::detect();
-    let fill_color = if mode == dark_light::Mode::Dark { "white" } else { "black" };
+    #[cfg(target_os = "macos")]
+    let fill_color = "black"; // macOS template images use the alpha channel, so black is standard
+    
+    #[cfg(not(target_os = "macos"))]
+    let fill_color = {
+        let mode = dark_light::detect();
+        if mode == dark_light::Mode::Dark { "white" } else { "black" }
+    };
+
     let svg_str = SVG_ICON.replace("fill=\"white\"", &format!("fill=\"{}\"", fill_color));
 
     let mut tree = usvg::Tree::from_str(&svg_str, &usvg::Options::default()).context("Parse SVG")?;
@@ -225,16 +232,16 @@ fn main() -> Result<()> {
     tray_menu.append(&quit_i)?;
 
     let mut clipboard = Clipboard::new()?;
-    let mut manager = GlobalHotKeyManager::new().ok();
+    let manager = GlobalHotKeyManager::new().ok();
     let mut current_hotkey = HotKey::new(Some(HotkeyOption::CtrlAltV.modifiers()), Code::KeyV);
-    let mut tray_icon = None;
+    let mut _tray_icon = None;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         
         match event {
             tao::event::Event::NewEvents(tao::event::StartCause::Init) => {
-                tray_icon = Some(init_tray(&tray_menu, &tray_icon_data));
+                let _ = _tray_icon.insert(init_tray(&tray_menu, &tray_icon_data));
                 register_initial_hotkey(&manager, current_hotkey);
                 platforms::show_startup_notification(&app_id);
             }

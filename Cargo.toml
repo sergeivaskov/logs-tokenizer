@@ -15,15 +15,16 @@ arboard = "3.3"
 global-hotkey = "0.5"
 tray-icon = "0.13"
 tao = "0.27"
-dark-light = "1.0"
-resvg = "0.38"
-usvg = "0.38"
-tiny-skia = "0.11"
-image = "0.25.10"
 log = "0.4.29"
 simplelog = "0.12.2"
 anyhow = "1.0.102"
 tempfile = "3.27.0"
+mimalloc = "0.1.50"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+dark-light = "1.0"
+resvg = "0.38"
+usvg = "0.38"
+tiny-skia = "0.11"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse"] }

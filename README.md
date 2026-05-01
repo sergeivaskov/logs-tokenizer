@@ -80,10 +80,24 @@ You simply copy logs, press `Ctrl+Alt+V`, and the utility instantly compresses t
 
 Make sure you have Rust (cargo) installed.
 
+### Windows & Linux
+
 ```bash
 git clone https://github.com/sergeivaskov/logs-tokenizer.git
 cd logstokenizer
 cargo build --release
 ```
 
-The executable file will be located at `target/release/logstokenizer.exe` (on Windows) or `target/release/logstokenizer` (on macOS/Linux).
+The executable file will be located at `target/release/logstokenizer.exe` (on Windows) or `target/release/logstokenizer` (on Linux).
+
+### macOS
+
+To build the macOS App Bundle (which runs in the background and has an icon):
+
+```bash
+git clone https://github.com/sergeivaskov/logs-tokenizer.git
+cd logstokenizer
+bash scripts/build_macos.sh
+```
+
+The compiled application will be located at `target/release/LogsTokenizer.app`. You can move it to your `/Applications` folder.
