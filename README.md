@@ -1,7 +1,8 @@
 # Logs Tokenizer 🗜️
 
 [📥 Download for Windows](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.exe)
-[📥 Download for Mac](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.macos-arm64) [(Intel)](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.macos-x64)
+[📥 Download for Mac (Intel)](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.macos-x64.dmg)
+[📥 Download for Mac (Apple Silicon)](https://github.com/sergeivaskov/logs-tokenizer/releases/latest/download/Logs.Tokenizer.macos-arm64.dmg)
 
 **Logs Tokenizer** is a smart background utility for developers, coders, and DevOps engineers that extremely compresses logs directly in the clipboard, keeping them in a readable text format.
 

@@ -167,13 +167,13 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             name: macos-x64
-            ext: ''
+            ext: '.dmg'
             enabled: ${{ inputs.build_macos_intel }}
             
           - os: macos-latest
             target: aarch64-apple-darwin
             name: macos-arm64
-            ext: ''
+            ext: '.dmg'
             enabled: ${{ inputs.build_macos_arm }}
 
     steps:
@@ -224,7 +224,14 @@ jobs:
 
       - name: Build release binary
         if: ${{ matrix.platform.enabled }}
-        run: cargo build --release --target ${{ matrix.platform.target }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.platform.os }}" == "macos-latest" ]]; then
+            chmod +x scripts/build_macos.sh
+            ./scripts/build_macos.sh ${{ matrix.platform.target }}
+          else
+            cargo build --release --target ${{ matrix.platform.target }}
+          fi
 
       - name: Prepare release binary
         if: ${{ matrix.platform.enabled }}
@@ -232,6 +239,20 @@ jobs:
         run: |
           if [ "${{ matrix.platform.os }}" = "windows-latest" ]; then
             cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs.Tokenizer.exe"
+          elif [ "${{ matrix.platform.os }}" = "macos-latest" ]; then
+            cd target/${{ matrix.platform.target }}/release
+            
+            # Create a temporary directory for the DMG contents
+            mkdir -p dmg_source
+            cp -r LogsTokenizer.app dmg_source/
+            
+            # Create a symlink to /Applications
+            ln -s /Applications dmg_source/Applications
+            
+            # Create the DMG
+            hdiutil create -volname "Logs Tokenizer" -srcfolder dmg_source -ov -format UDZO "../../../Logs.Tokenizer.${{ matrix.platform.name }}.dmg"
+            
+            cd ../../../
           else
             cp target/${{ matrix.platform.target }}/release/logstokenizer${{ matrix.platform.ext }} "Logs.Tokenizer.${{ matrix.platform.name }}"
             chmod +x "Logs.Tokenizer.${{ matrix.platform.name }}"
@@ -296,12 +317,12 @@ jobs:
             DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.linux-x64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.linux-x64) - Linux x64\n"
           fi
           if [ "${{ inputs.build_macos_intel }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- macOS Intel: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-x64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64) - macOS Intel\n"
+            PLATFORMS="${PLATFORMS}- macOS Intel: [\`Logs.Tokenizer.macos-x64.dmg\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64.dmg)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-x64.dmg](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64.dmg) - macOS Intel\n"
           fi
           if [ "${{ inputs.build_macos_arm }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- macOS Apple Silicon: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-arm64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
+            PLATFORMS="${PLATFORMS}- macOS Apple Silicon: [\`Logs.Tokenizer.macos-arm64.dmg\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64.dmg)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-arm64.dmg](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64.dmg) - macOS ARM\n"
           fi
           
           echo "platforms<<EOF" >> $GITHUB_OUTPUT
@@ -328,8 +349,8 @@ jobs:
             
             ### Installation
             1. Click the download link above for your platform
-            2. Run `Logs.Tokenizer.exe` (Windows) or `Logs.Tokenizer.*` (macOS/Linux)
-            3. No extraction needed - it's a standalone executable!
+            2. Run `Logs.Tokenizer.exe` (Windows), `Logs.Tokenizer.*` (Linux), or open the `.dmg` and drag `LogsTokenizer.app` to Applications (macOS)
+            3. No extraction needed for Windows/Linux - it's a standalone executable!
             
             ### Usage
             1. Launch the application (icon appears in system tray)
