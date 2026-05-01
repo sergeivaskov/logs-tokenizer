@@ -131,8 +131,8 @@ jobs:
 
       - name: Create and push tag
         run: |
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
+          git tag -f ${{ steps.version.outputs.tag }}
+          git push -f origin ${{ steps.version.outputs.tag }}
 
   build:
     name: Build - ${{ matrix.platform.name }}
