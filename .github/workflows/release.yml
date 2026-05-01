@@ -16,16 +16,16 @@ on:
         default: false
       
       build_macos_intel:
-        description: 'Build for macOS Intel (disabled)'
+        description: 'Build for macOS Intel'
         required: true
         type: boolean
-        default: false
+        default: true
       
       build_macos_arm:
-        description: 'Build for macOS ARM (disabled)'
+        description: 'Build for macOS ARM'
         required: true
         type: boolean
-        default: false
+        default: true
       
       version_increment:
         description: 'Auto increment version'
@@ -288,20 +288,20 @@ jobs:
           DIRECT_LINKS=""
           
           if [ "${{ inputs.build_windows }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- Windows (x64): [\`Logs.Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs.Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.exe](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.exe) - Windows x64\n"
+            PLATFORMS="${PLATFORMS}- Windows (x64): [\`Logs.Tokenizer.exe\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.exe) ($(du -h artifacts/logstokenizer-windows-x64/Logs.Tokenizer.exe 2>/dev/null | cut -f1 || echo '~5')MB)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.exe](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.exe) - Windows x64\n"
           fi
           if [ "${{ inputs.build_linux }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- Linux (x64): [\`Logs.Tokenizer.linux-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.linux-x64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.linux-x64) - Linux x64\n"
+            PLATFORMS="${PLATFORMS}- Linux (x64): [\`Logs.Tokenizer.linux-x64\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.linux-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.linux-x64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.linux-x64) - Linux x64\n"
           fi
           if [ "${{ inputs.build_macos_intel }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- macOS Intel: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-x64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-x64) - macOS Intel\n"
+            PLATFORMS="${PLATFORMS}- macOS Intel: [\`Logs.Tokenizer.macos-x64\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-x64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-x64) - macOS Intel\n"
           fi
           if [ "${{ inputs.build_macos_arm }}" = "true" ]; then
-            PLATFORMS="${PLATFORMS}- macOS Apple Silicon: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64)\n"
-            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-arm64](https://github.com/${{ github.repository }}/releases/download/${{ needs.version.outputs.tag }}/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
+            PLATFORMS="${PLATFORMS}- macOS Apple Silicon: [\`Logs.Tokenizer.macos-arm64\`](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64)\n"
+            DIRECT_LINKS="${DIRECT_LINKS}- [Download Logs.Tokenizer.macos-arm64](https://github.com/${{ github.repository }}/releases/latest/download/Logs.Tokenizer.macos-arm64) - macOS ARM\n"
           fi
           
           echo "platforms<<EOF" >> $GITHUB_OUTPUT

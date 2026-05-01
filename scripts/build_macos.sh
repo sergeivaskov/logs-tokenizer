@@ -6,14 +6,21 @@ set -e
 cd "$(dirname "$0")/.."
 
 APP_NAME="LogsTokenizer"
+TARGET_ARG=""
 TARGET_DIR="target/release"
+
+if [ -n "$1" ]; then
+    TARGET_ARG="--target $1"
+    TARGET_DIR="target/$1/release"
+fi
+
 APP_DIR="$TARGET_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
 
 echo "Building release binary..."
-cargo build --release
+cargo build --release $TARGET_ARG
 
 echo "Creating App Bundle structure..."
 mkdir -p "$MACOS_DIR"
