@@ -128,15 +128,6 @@ jobs:
           rm Cargo.toml.bak || true
           cat Cargo.toml | grep "^version"
 
-      - name: Commit and push version update
-        run: |
-          git add Cargo.toml
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
-            git push origin HEAD:${{ github.ref_name }}
-          fi
 
       - name: Create and push tag
         run: |
